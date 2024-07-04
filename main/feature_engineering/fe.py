@@ -1,22 +1,18 @@
 import pandas as pd
 from datetime import datetime
 
-# Labeling #
 def labeling(ticker_data, TP):
-    # SMA-P/P, binary classification
     ticker_data[f'y_{TP}'] = ticker_data['close'].rolling(window=TP).mean()
     ticker_data[f'y_{TP}'] = ticker_data[f'y_{TP}'].shift(-TP)
     ticker_data = ticker_data.dropna().reindex()
     ticker_data[f'y_{TP}'] = ((ticker_data[f'y_{TP}'] - ticker_data['close']) >= 0).astype(int)
 
-    origi_data = ticker_data.copy() # dataframe for validation
-    # restore to a dataframe without disclosing future information
+    origi_data = ticker_data.copy()
     ticker_data[f'y_{TP}'] = ticker_data[f'y_{TP}'].shift(TP)
     ticker_data = ticker_data.dropna().reset_index(drop=True)
 
     return origi_data, ticker_data
 
-# Get every single dates in data #
 def unique_date(ticker_data):
     if not pd.api.types.is_datetime64_any_dtype(ticker_data['Date']):
         ticker_data['Date'] = pd.to_datetime(ticker_data['Date'])
@@ -24,7 +20,6 @@ def unique_date(ticker_data):
     unique_dates = list(unique_dates)
     return unique_dates
 
-# Splite Library and Prediction #
 def splite_l_p(ticker_data, unique_dates, start_pred_date):
     if start_pred_date in unique_dates:
         actual_start_pred_date = start_pred_date
@@ -38,7 +33,6 @@ def splite_l_p(ticker_data, unique_dates, start_pred_date):
     Prediction = ticker_data[ticker_data['Date'] >= unique_dates[unique_dates.index(actual_start_pred_date)]]
     return Library, Prediction, actual_start_pred_date
 
-# Data preprocessing #
 def data_preprocessing(ticker_data, tp, start_pred_date):
     origi_data, ticker_data = labeling(ticker_data, tp)
     unique_dates = unique_date(ticker_data)
