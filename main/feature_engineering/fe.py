@@ -38,7 +38,7 @@ def splite_l_p(ticker_data, unique_dates, start_pred_date):
     Prediction = ticker_data[ticker_data['Date'] >= unique_dates[unique_dates.index(actual_start_pred_date)]]
     return Library, Prediction, actual_start_pred_date
 
-# Main #
+# Data preprocessing #
 def data_preprocessing(ticker_data, tp, start_pred_date):
     origi_data, ticker_data = labeling(ticker_data, tp)
     unique_dates = unique_date(ticker_data)

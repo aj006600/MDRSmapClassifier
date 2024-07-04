@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 
-# technical indicator
+# Technical indicator #
 def calculate_ema(data, n): # EMA
     return data.ewm(span=n, min_periods=n).mean()
 def calculate_macd(data): # MACD
@@ -20,7 +20,7 @@ def calculate_rsi(data, period=14): # RSI
     rsi = 100 - (100 / (1 + rs))
     return rsi
 
-# make technical indicator features
+# Make technical indicator features #
 def mk_tech_f(ticker_data):
     ticker_data['EMA9'] = calculate_ema(ticker_data['close'], 9)
     ticker_data['EMA12'] = calculate_ema(ticker_data['close'], 12)
@@ -30,14 +30,14 @@ def mk_tech_f(ticker_data):
     ticker_data['RSI14'] = calculate_rsi(ticker_data['MACD'])
     return ticker_data
 
-# differ process
+# Differ processing #
 def diff_f(ticker_data):
     f_d = ['financing', 'fi', 'ii']
     ticker_data[f_d] = ticker_data[f_d].diff()
     ticker_data = ticker_data.dropna().reset_index(drop=True)
     return ticker_data
 
-# main
+# Processing #
 def processing(ticker_data):
     ticker_data = mk_tech_f(ticker_data)
     ticker_data = diff_f(ticker_data)
