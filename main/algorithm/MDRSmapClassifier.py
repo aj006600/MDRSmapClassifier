@@ -96,17 +96,19 @@ def pipeline(pred_type, actual_start_pred_date, origi_data, backtrade_end_date,
         _, EDM_result = other_preds_with_hp(Library, Prediction, f_selec, rs_score, param, target, max_lag, theta, tp, EDM_result)
         EDM_result = eval_results(EDM_result, ticker, backtrade_end_date)
         return EDM_result
-    
-# MDRSmapClassifier realtime #
+
+# Create a dataframe for realtime prediction results #
 def realtime_result_df():
     EDM_result = pd.DataFrame(columns=['Predictions'])
     return EDM_result
 
+# find MDRSmapClassifier realtime parameter #
 def realtime_find_hp(Library, Prediction, target, valid_interval, tp, ticker, E_max, max_lag, kn, theta_seq):
     f_selec, rs_score, param, theta, th, y_pred = first_pred(Library, Prediction, target, valid_interval, tp, ticker, E_max, max_lag, kn, theta_seq)
     print(f'prediction: {y_pred}')
     return f_selec, rs_score, param, theta, th, y_pred
 
+# Save MDRSmapClassifier realtime parameter #
 def save_parameters(f_selec, rs_score, param, theta, ticker, tp):
     current_dir = os.path.dirname(__file__)
     file_dir = os.path.join(current_dir, '..', 'models', f'{ticker}_{tp}_param.pkl')
@@ -116,14 +118,16 @@ def save_parameters(f_selec, rs_score, param, theta, ticker, tp):
         'param': param,
         'theta': theta
     }, file_dir)
-    print(f"Parameters saved to {file_dir}")
+    print(f"Parameter saved to {file_dir}")
     return file_dir
 
+# Load MDRSmapClassifier realtime parameter #
 def load_parameter(file_dir):
     parameter = joblib.load(file_dir)
     print(f"Parameter loaded from {file_dir}")
     return parameter
 
+# MDRSmapClassifier realtime training function #
 def realtime_train(Library, Prediction, target, valid_interval, tp, ticker, E_max, max_lag, kn, theta_seq):
     EDM_result = realtime_result_df()
     f_selec, rs_score, param, theta, th, y_pred = realtime_find_hp(Library, Prediction, target, valid_interval, tp, ticker, E_max, max_lag, kn, theta_seq)
@@ -131,6 +135,7 @@ def realtime_train(Library, Prediction, target, valid_interval, tp, ticker, E_ma
     file_dir = save_parameters(f_selec, rs_score, param, theta, ticker, tp)
     return y_pred, file_dir, EDM_result
 
+# MDRSmapClassifier realtime predictive function #
 def realtime_pred(Prediction, file_dir,
                   Library, target, max_lag, tp, EDM_result):
     parameter = load_parameter(file_dir)
