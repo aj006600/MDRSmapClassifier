@@ -139,8 +139,6 @@ def realtime_train(Library, Prediction, target, valid_interval, tp, ticker, E_ma
 def realtime_pred(Prediction, file_dir,
                   Library, target, max_lag, tp, EDM_result):
     parameter = load_parameter(file_dir)
-    y_pred, _ = other_preds_with_hp(Library, Prediction, 
-                                             parameter['f_selec'], parameter['rs_score'], parameter['param'], parameter['theta'], 
-                                             target, max_lag, tp, EDM_result)
+    y_pred, _ = other_preds_with_hp(Library, Prediction, parameter['f_selec'], parameter['rs_score'], parameter['param'], parameter['theta'], target, max_lag, tp, EDM_result)
     print(f'prediction: {y_pred[0]}')
     return y_pred
