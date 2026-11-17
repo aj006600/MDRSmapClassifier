@@ -87,25 +87,32 @@ export default function App() {
     resultsVersion,
   )
 
-  async function start(event) {
-    event.preventDefault()
+  // request 是 POST /api/jobs 的 body;re_search 為 true 時不沿用已存的參數,從新的起點重新做 Search
+  async function launch(request) {
     setError(null)
     try {
       const response = await fetch('/api/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stock_id: stockId.trim(), horizon }),
+        body: JSON.stringify(request),
       })
       if (!response.ok) {
         setError(`無法發起執行(HTTP ${response.status})`)
         return
       }
-      // 這支股票這個 Horizon 已經在排隊或執行時,回傳的是原本那個工作
+      // 這支股票這個 Horizon 已經在排隊或執行時,回傳的是原本那個工作。
+      // 今天已經算過時,回傳的是已經成功的工作:它不會出現在輪詢的清單裡,所以直接顯示結果
       const job = await response.json()
       setJobs((jobs) => mergeJobs(jobs, [job]))
+      if (job.status === 'succeeded') showResult(job)
     } catch {
       setError('連不上後端')
     }
+  }
+
+  function start(event) {
+    event.preventDefault()
+    launch({ stock_id: stockId.trim(), horizon, re_search: false })
   }
 
   // 選取這個工作的結果,並重新讀取股票清單與結果,讓剛完成的結果出現。
@@ -182,7 +189,14 @@ export default function App() {
       {offline && <p className="error">連不上後端,稍後會自動重試</p>}
       {jobs.length > 0 && <JobList jobs={jobs} />}
       {result.error && <p className="error">{result.error}</p>}
-      {result.data && <ResultView result={result.data} />}
+      {result.data && (
+        <ResultView
+          result={result.data}
+          onReSearch={() =>
+            launch({ stock_id: result.data.stock_id, horizon: result.data.horizon, re_search: true })
+          }
+        />
+      )}
 
       <StockList summaries={summaries} selected={selected} />
 
@@ -226,7 +240,7 @@ function JobStatus({ job, ahead }) {
   )
 }
 
-function ResultView({ result }) {
+function ResultView({ result, onReSearch }) {
   const { horizon } = result
   const backtest = result.backtest
   const misses = backtest.days.filter((day) => day.direction !== day.actual).length
@@ -237,6 +251,16 @@ function ResultView({ result }) {
       </h2>
       <p>
         資料用到 <strong>{result.data_date}</strong> 這個交易日。
+      </p>
+      <p>
+        參數在 <strong>{result.search_date}</strong> 做 Search 找到,逐日預測從起點 {result.start}{' '}
+        開始。{' '}
+        <button type="button" onClick={onReSearch}>
+          重新搜尋
+        </button>
+      </p>
+      <p className="note">
+        重新搜尋會以最新的交易日重設起點並重新做 Search,需要幾分鐘;Backtest 從新的起點重新計算。
       </p>
       <p className="note">
         某個交易日的 Direction 為 1,表示它之後 {horizon} 個交易日的平均收盤價不低於當天的收盤價;

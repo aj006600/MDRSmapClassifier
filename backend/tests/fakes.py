@@ -8,18 +8,39 @@ import os
 import time
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 
 
 @dataclass
 class FixedSource:
-    """不論股票代號,都回傳固定的每日資料表裡落在查詢區間的列。"""
+    """不論股票代號,都回傳固定的每日資料表裡落在查詢區間的列。
+
+    有 request_log 時,每次查詢的起訖日都附加到這個檔。查詢發生在執行工作的
+    子程序裡,測試的程序要讀這個檔才看得到。
+    """
 
     table: pd.DataFrame
+    request_log: Path | None = None
 
     def daily(self, stock_id: str, start: date, end: date) -> pd.DataFrame:
+        if self.request_log is not None:
+            with self.request_log.open("a") as file:
+                file.write(f"{start} {end}\n")
         return self.table.loc[pd.Timestamp(start) : pd.Timestamp(end)]
+
+    def requests(self) -> list[tuple[date, date]]:
+        """回傳到目前為止每次查詢的起訖日,依查詢的先後排列。
+
+        只有建立時給了 request_log 才記得到。
+        """
+        if not self.request_log.exists():
+            return []
+        lines = self.request_log.read_text().splitlines()
+        return [
+            tuple(date.fromisoformat(day) for day in line.split()) for line in lines
+        ]
 
 
 @dataclass

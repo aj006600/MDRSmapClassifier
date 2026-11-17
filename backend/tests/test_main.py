@@ -1,15 +1,18 @@
 """後端 HTTP API 的對外行為。
 
-測試環境與正式環境有三點不同:
+測試環境與正式環境有四點不同:
 
 - 資料來源換成假實作,回傳固定的資料,或模擬資料來源的各種狀況
 - 演算法的設定調小
 - 每個測試用自己的暫時資料庫
+- 今天是測試指定的日子
 
 執行在另一個程序裡跑,所以發起之後要輪詢工作直到結束。
 """
 
 import time
+from dataclasses import dataclass, replace
+from datetime import date, timedelta
 
 import pandas as pd
 import pytest
@@ -21,14 +24,31 @@ from app.runs import run
 from tests.fakes import DyingSource, FailingSource, FixedSource, HangingSource
 
 
+@dataclass
+class Calendar:
+    """測試指定的今天,改 day 就換到另一天。"""
+
+    day: date
+
+    def today(self) -> date:
+        return self.day
+
+
 @pytest.fixture
 def database(tmp_path):
     return tmp_path / "mdrsmap.db"
 
 
 @pytest.fixture
-def client(fake_source, database, run_config):
-    with TestClient(create_app(fake_source, database, run_config)) as client:
+def calendar(daily) -> Calendar:
+    """預設的今天是每日資料表的最後一個交易日。"""
+    return Calendar(daily.index[-1].date())
+
+
+@pytest.fixture
+def client(fake_source, database, run_config, calendar):
+    app = create_app(fake_source, database, run_config, today=calendar.today)
+    with TestClient(app) as client:
         yield client
 
 
@@ -68,6 +88,15 @@ def _run_job(source, database, run_config, stock_id: str = "2330") -> dict:
         return _wait_until_done(client, _start(client, stock_id))
 
 
+def _run_to_result(client: TestClient, re_search: bool = False) -> dict:
+    """對 2330、Horizon 10 發起執行並等它成功,回傳執行後的結果。"""
+    body = {"stock_id": "2330", "horizon": 10, "re_search": re_search}
+    job = client.post("/api/jobs", json=body).json()
+    ended = _wait_until_done(client, job["id"])
+    assert ended["status"] == "succeeded", ended["error"]
+    return client.get("/api/results/2330/10").json()
+
+
 def test_health(client):
     response = client.get("/health")
     assert response.status_code == 200
@@ -91,6 +120,106 @@ def test_job_runs_through_stages_to_backtest_and_forecast(client, daily, run_con
     ]
 
 
+def test_result_reports_search_date_and_start(client, daily, run_config, calendar):
+    result = _run_to_result(client)
+
+    assert result["search_date"] == calendar.day.isoformat()
+    assert (
+        result["start"] == daily.index[-1 - run_config.lookback_days].date().isoformat()
+    )
+
+
+def test_later_run_reuses_the_search(client, calendar, daily):
+    calendar.day = daily.index[-6].date()
+    first = _run_to_result(client)
+    calendar.day = daily.index[-1].date()
+    later = _run_to_result(client)
+
+    assert later["search_date"] == first["search_date"]
+    assert later["start"] == first["start"]
+
+
+def test_later_run_moves_revealed_forecast_into_backtest(client, calendar, daily):
+    calendar.day = daily.index[-6].date()
+    first = _run_to_result(client)
+    calendar.day = daily.index[-1].date()
+    later = _run_to_result(client)
+
+    # 中間多了 5 個交易日:第一次的 Forecast 有 5 天揭曉,Forecast 換成最後 10 天
+    assert later["backtest"]["scored_days"] == first["backtest"]["scored_days"] + 5
+    assert [day["date"] for day in later["forecast"]] == [
+        day.date().isoformat() for day in daily.index[-10:]
+    ]
+
+
+def test_later_run_predicts_like_one_run_from_the_same_start(
+    fake_source, calendar, daily, run_config, tmp_path
+):
+    # Library 取 100 天時,這份資料的 Library 換掉幾列,預測也恰好不變,測不出差異
+    config = replace(run_config, library_days=150)
+    with TestClient(
+        create_app(fake_source, tmp_path / "later.db", config, calendar.today)
+    ) as client:
+        calendar.day = daily.index[-6].date()
+        _run_to_result(client)
+        calendar.day = daily.index[-1].date()
+        later = _run_to_result(client)
+
+    # 另一個資料庫在同一天一次跑完:起點多往前 5 個交易日,才會落在同一個起點
+    one_run_config = replace(config, lookback_days=config.lookback_days + 5)
+    with TestClient(
+        create_app(fake_source, tmp_path / "one_run.db", one_run_config, calendar.today)
+    ) as client:
+        one_run = _run_to_result(client)
+
+    # 補算的 5 天都在最後 10 天的 Forecast 裡,逐日比對
+    assert one_run["start"] == later["start"]
+    assert one_run["backtest"] == later["backtest"]
+    assert one_run["forecast"] == later["forecast"]
+
+
+def test_later_run_requests_only_days_after_stored_data(
+    client, calendar, daily, fake_source
+):
+    stored_until = daily.index[-6].date()
+    calendar.day = stored_until
+    _run_to_result(client)
+    calendar.day = daily.index[-1].date()
+    _run_to_result(client)
+
+    assert fake_source.requests()[-1] == (
+        stored_until + timedelta(days=1),
+        calendar.day,
+    )
+
+
+def test_run_on_the_same_day_returns_the_stored_job(client):
+    job = client.post("/api/jobs", json={"stock_id": "2330", "horizon": 10}).json()
+    done = _wait_until_done(client, job["id"])
+
+    again = client.post("/api/jobs", json={"stock_id": "2330", "horizon": 10})
+
+    assert again.status_code == 200
+    assert again.json() == done
+
+
+def test_re_search_starts_over_from_a_new_start(client, calendar, daily, run_config):
+    calendar.day = daily.index[-6].date()
+    _run_to_result(client)
+    calendar.day = daily.index[-1].date()
+    _run_to_result(client)
+
+    # 今天已經有成功的結果,要求重新搜尋時仍然重做 Search
+    result = _run_to_result(client, re_search=True)
+
+    assert result["search_date"] == calendar.day.isoformat()
+    assert (
+        result["start"] == daily.index[-1 - run_config.lookback_days].date().isoformat()
+    )
+    # 從新的起點到今天共 lookback_days + 1 天,最後 Horizon 天是 Forecast,其餘計分
+    assert result["backtest"]["scored_days"] == run_config.lookback_days + 1 - 10
+
+
 def test_job_without_horizon_uses_10(database, run_config):
     # 這裡只看發起時的 Horizon;用一定失敗的資料來源,工作才會很快結束
     source = FailingSource(ConnectionError("不需要資料"))
@@ -102,14 +231,14 @@ def test_job_without_horizon_uses_10(database, run_config):
 
 
 def test_result_reports_backtest_and_forecast_of_the_run(
-    client, fake_source, run_config
+    client, daily, fake_source, run_config, calendar
 ):
-    job = client.post("/api/jobs", json={"stock_id": "2330", "horizon": 10}).json()
-    _wait_until_done(client, job["id"])
-    result = client.get("/api/results/2330/10").json()
+    result = _run_to_result(client)
 
-    # 在測試的程序裡用同樣的資料與設定再執行一次
-    days = run(fake_source, "2330", 10, run_config).days
+    # 在測試的程序裡用執行時抓到的同一段資料與設定再執行一次
+    (since, until), *_ = fake_source.requests()
+    fetched = daily.loc[pd.Timestamp(since) : pd.Timestamp(until)]
+    days = run(fetched, 10, calendar.day, config=run_config).days
     scored = days.dropna()
     assert result["backtest"]["accuracy"] == (
         (scored["direction"] == scored["actual"]).sum() / len(scored)
@@ -339,6 +468,19 @@ def test_gap_in_source_data_fails_naming_the_missing_days(daily, database, run_c
     assert ended["status"] == "failed"
     assert "資料來源的資料有缺漏" in ended["error"]
     assert gap[0].date().isoformat() in ended["error"]
+
+
+def test_stock_without_any_complete_day_fails_saying_data_is_incomplete(
+    daily, database, run_config
+):
+    # 查得到這支股票,但每一天都缺外資持股
+    incomplete = daily.copy()
+    incomplete["foreign_shares"] = pd.NA
+
+    ended = _run_job(FixedSource(incomplete), database, run_config)
+
+    assert ended["status"] == "failed"
+    assert "資料來源的資料有缺漏" in ended["error"]
 
 
 def test_unexpected_error_fails_saying_it_is_a_program_error(database, run_config):

@@ -66,8 +66,9 @@ def known_directions_source(daily) -> FixedSource:
 
 
 @pytest.fixture
-def fake_source(daily) -> FixedSource:
-    return FixedSource(daily)
+def fake_source(daily, tmp_path) -> FixedSource:
+    """回傳 daily 的資料來源,記下每次查詢的起訖日。"""
+    return FixedSource(daily, tmp_path / "requests.log")
 
 
 @pytest.fixture(scope="session")
