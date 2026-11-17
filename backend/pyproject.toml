@@ -1,0 +1,42 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "MDR S-map Classifier 的後端(FastAPI + uv)"
+requires-python = "==3.12.*"
+# 三個上限是刻意的,其餘套件用最新版並由 uv.lock 鎖定:
+# - pyedm:回歸基準只在 1.15.4 重現,見 docs/adr/0001-pin-pyedm-1x.md
+# - setuptools:pyEDM 1.x 會 import pkg_resources,setuptools 81 起移除了它
+# - scikit-learn:演算法使用的參數寫法在 1.10 會被移除
+dependencies = [
+    "fastapi>=0.163.1",
+    "uvicorn[standard]>=0.54.0",
+    "pydantic-settings>=2.16.3",
+    "pyedm==1.15.4",
+    "setuptools<81",
+    "scikit-learn<1.10",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "httpx2>=2.16.2",
+    "ruff>=0.17.5",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.ruff.lint]
+# 啟用的規則:
+# - E、F:基礎錯誤
+# - I:import 排序
+# - UP:現代語法(PEP 585/604)
+# - N:PEP 8 命名
+# - B:bugbear 的常見陷阱
+# - PT:pytest 風格
+select = ["E", "F", "I", "UP", "N", "B", "PT"]
+# B008(勿在參數預設值呼叫函數)與 FastAPI 的 Depends() 寫法衝突,是 FastAPI 專案的標準配置
+ignore = ["B008"]

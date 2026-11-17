@@ -1,0 +1,5 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+# tests/ 刻意不排除:dev stage 要跑測試;runtime stage 只 COPY app,出貨的 image 仍不含測試

@@ -1,0 +1,29 @@
+# Base:只定義服務與內部接線;對外發佈哪些埠由 compose.local.yaml 決定。
+services:
+  backend:
+    build: ./backend
+    # 後端固定跑 linux/amd64:pyEDM 1.15.4 在 PyPI 上只有 x86_64 的 Linux wheel,
+    # 沒有 arm64 的 wheel,也沒有 sdist。在 Apple Silicon 上由 Docker 模擬執行,比原生慢。
+    platform: linux/amd64
+    image: ${APP_NAME:-mdrsmap-classifier}-backend:${TAG:-latest}
+    restart: unless-stopped
+    # 唯一的設定來源,不進版控,缺檔時由 make 從 .env.example 複製。
+    # ENV_FILE 只給清理用的 make target 改指到進版控的 .env.example:清理不該因為缺 .env 而失敗。
+    env_file:
+      - ${ENV_FILE:-.env}
+    # 不對外開埠,由 frontend nginx 代理 /api;healthcheck 用 python 因 bookworm-slim 無 curl
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  frontend:
+    build: ./frontend
+    image: ${APP_NAME:-mdrsmap-classifier}-frontend:${TAG:-latest}
+    restart: unless-stopped
+    # 等 backend healthy 再起 nginx,否則 uvicorn 未 listen 前 /api 會回 502
+    depends_on:
+      backend:
+        condition: service_healthy

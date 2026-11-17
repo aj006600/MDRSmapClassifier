@@ -1,1 +1,25 @@
+# 參考用的 R 範例程式
 ref/
+
+# python
+**/__pycache__/
+*.pyc
+**/.venv/
+**/.pytest_cache/
+**/.ruff_cache/
+
+# 執行時產生的參數檔
+*.pkl
+
+# node
+**/node_modules/
+**/dist/
+
+# .env 不進版控,只有範本例外
+.env*
+!.env.example
+*.secret
+.DS_Store
+
+# make worktree 開的 worktree(一個 issue 一個)
+.claude/worktrees/

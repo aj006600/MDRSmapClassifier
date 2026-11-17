@@ -4,23 +4,23 @@
 
 | 指令 | 用途 |
 |---|---|
-| `<本機開發,例:make dev / docker compose up / npm run dev>` | 起本機環境 |
-| `<測試,例:make test / uv run pytest / npm test>` | 跑測試 |
-| `<檢查,例:make lint / ruff check / npm run lint>` / `<格式化>` | lint / format |
+| `make local` / `make local-down` | 起本機環境(localhost:3000 / :8000)/ 停止並清理 |
+| `make test`(只跑一部分:`make test ARGS="tests/test_main.py"`) | 跑測試,在 backend 的 dev stage 容器裡 |
+| `make lint` / `make format` | lint / format(ruff) |
 
-<其餘指令:`make help`(或 `npm run`、`just --list`,依專案填)。>
+其餘指令:`make help`。
 
 ## Development workflow
 
 Trunk-based:`main` 是唯一長期分支,所有改動走短命 feature branch → PR → squash merge,分支命名 `feat/xxx`、`fix/xxx`。**開工前先切分支**——commit 落在 `main` 上不會被攔,但 push 會(`.claude/hooks/block-push-main.sh` 在 python3 可用時硬擋),屆時得把 commit 搬到分支才走得下去。
 
-一段工作完成後可自行 push feature branch,但**開 PR 前要先問過我**——PR 是 CI 的觸發點。<merge 之後的部署節奏:依專案補一句,例如「merge 進 main 部署 dev/qas,打 v* tag 才上 prod」。>
+一段工作完成後可自行 push feature branch,但**開 PR 前要先問過我**——PR 是 CI 的觸發點。merge 進 main 只跑 CI,不部署;目前還沒有發版流程。
 
 PR 有 conflict 時自行 `git rebase origin/main` 再 force-push 自己的 feature branch,不用問;文件表格類衝突兩邊都留,程式碼衝突解不了就停下來問。
 
 ## Conventions
 
-- **Commit 前先跑 lint**(本專案:`<檢查指令>`)。CI 也會把關,本機先跑省一輪紅燈。
+- **Commit 前先跑 lint**(本專案:`make lint`,改過格式就再跑 `make format`)。CI 也會把關,本機先跑省一輪紅燈。
 - **Commit message**:輕量 Conventional Commits,英文——`<type>: <description>`,type 取 `feat/fix/docs/test/refactor/chore`,scope 選用(`feat(api): ...` 也可)。
 - **PR 標題與內文**:英文,**不用 emoji**(commit message 同樣不用)。標題即 Conventional Commit(squash 後成為 main 的 commit)。body 只有兩節:`## Summary`(為什麼+做了什麼,1-3 個 bullet)、`## Testing`(怎麼驗證的)——**十行內**,不重述 diff,審計報告與過程敘事留在對話與 commit message。
 - **不留 AI credit**:commit message、PR / issue 的標題內文與留言、文件、程式碼,都不寫 AI 工具的署名(`Co-Authored-By: Claude ...` 這類 trailer、「Generated with Claude Code」這類字樣)。commit / PR / issue 由 `.claude/hooks/ai-credit-guard.sh` 擋,文件與程式碼靠這條。
