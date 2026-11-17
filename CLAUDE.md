@@ -7,6 +7,7 @@
 | `make local` / `make local-down` | 起本機環境(localhost:3000 / :8000)/ 停止並清理 |
 | `make test`(只跑一部分:`make test ARGS="tests/test_main.py"`) | 跑測試,在 backend 的 dev stage 容器裡 |
 | `make lint` / `make format` | lint / format(ruff) |
+| `make worktree ISSUE=<n> BRANCH=<feat/slug>` / `make worktree-rm ISSUE=<n>` | 開 / 收一個 issue 的 worktree(從主 checkout 跑;不要用 `git worktree add` 或內建的 worktree 工具) |
 
 其餘指令:`make help`。
 
