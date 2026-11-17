@@ -1,0 +1,32 @@
+name: CI
+
+# Trunk-based:PR 與 main 跑後端的 lint 與測試,並驗證前端 build 得過
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 同一個 ref 一次只跑一條;PR 的新 commit 直接取消舊 run
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # 跑在 backend dev stage 容器裡,與本機 make test 同一套環境。
+  # runner 是 amd64,與 compose.yaml 為 backend 固定的平台相同
+  test-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --target dev -t backend-test backend
+      - run: docker run --rm backend-test ruff check .
+      - run: docker run --rm backend-test ruff format --check .
+      - run: docker run --rm backend-test pytest -q
+
+  # 前端只驗 build 得過
+  test-frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build frontend
