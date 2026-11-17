@@ -13,26 +13,34 @@ from tests.fakes import FixedSource
 
 PAPER_EXPORT = Path(__file__).parent / "mdrsmap" / "data" / "2330.xlsx"
 
-# 匯出試算表的價量欄名對到標準每日資料表的欄名
-_DAILY_COLUMNS = {
-    "開盤": "open",
-    "最高": "high",
-    "最低": "low",
-    "收盤": "close",
+# 匯出試算表的欄名對到標準每日資料表的欄名
+_PRICE_COLUMNS = {"開盤": "open", "最高": "high", "最低": "low", "收盤": "close"}
+# 這些欄位在匯出試算表裡以張為單位,標準每日資料表以股為單位
+_LOT_COLUMNS = {
     "成交量": "volume",
+    "融資": "margin_balance",
+    "外資餘額": "foreign_shares",
+    "投信買賣超": "trust_net_buy",
+    "自營商買賣超": "dealer_net_buy",
 }
+_SHARES_PER_LOT = 1000
 
 
 @pytest.fixture(scope="session")
 def daily() -> pd.DataFrame:
     """固定內容的標準每日資料表,最後一個交易日是今天。
 
-    內容是論文 2330 匯出資料最後 300 個交易日的價量。執行以今天為準往前抓資料,
+    內容是論文 2330 匯出資料最後 300 個交易日的價量與籌碼。執行以今天為準往前抓資料,
     所以日期換成到今天為止的平日。
+
+    匯出資料沒有成交值,這裡以收盤價乘成交量代替。
     """
-    raw = pd.read_excel(PAPER_EXPORT).tail(300)
-    table = raw[list(_DAILY_COLUMNS)].rename(columns=_DAILY_COLUMNS)
-    table = table.astype(DAILY_DTYPES).reset_index(drop=True)
+    raw = pd.read_excel(PAPER_EXPORT).tail(300).reset_index(drop=True)
+    table = raw[list(_PRICE_COLUMNS)].rename(columns=_PRICE_COLUMNS)
+    lots = raw[list(_LOT_COLUMNS)].rename(columns=_LOT_COLUMNS)
+    table = table.join(lots * _SHARES_PER_LOT)
+    table["trading_value"] = (table["close"] * table["volume"]).round()
+    table = table[list(DAILY_DTYPES)].astype(DAILY_DTYPES)
     table.index = pd.bdate_range(end=date.today(), periods=len(table), name="date")
     return table
 

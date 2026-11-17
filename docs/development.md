@@ -45,7 +45,7 @@ make local-down  # 停止並清理 container 與 network
 - Library 取起點之前的 600 個交易日,不足 600 個交易日的股票不執行。這兩個數字設定在 `backend/app/runs.py` 的 `RunConfig`
 - 演算法的設定值在 `backend/mdrsmap/config.py`,預設為論文的值
 
-失敗原因是寫給使用者看的。查無股票代號、歷史資料不足、資料來源額度用盡、資料來源連不上或回應異常,各有自己的說明;其他例外一律標成程式錯誤並附上例外的內容。對應寫在 `backend/app/jobs.py` 的 `_failure_reason`。
+失敗原因是寫給使用者看的。查無股票代號、歷史資料不足、資料來源額度用盡、資料來源連不上或回應異常、資料來源的資料有補不了的缺漏,各有自己的說明;其他例外一律標成程式錯誤並附上例外的內容。對應寫在 `backend/app/jobs.py` 的 `_failure_reason`。
 
 資料庫是 SQLite,檔案在 backend container 的 `/data/mdrsmap.db`,`/data` 掛的是 named volume `data`。各種操作對資料的影響:
 
@@ -116,12 +116,21 @@ CI 在乾淨的機器上對**合併後的結果**跑完整套,答「合進 main 
 
 API 的測試不連網路:資料來源換成 `tests/fakes.py` 裡的假實作,有的回傳固定資料,有的模擬失敗、一直不回應或讓程序直接結束。演算法的設定在 `tests/conftest.py` 裡調小,每個測試用自己的暫時資料庫。執行一樣在背景程序裡跑,所以假資料來源要放在能被 import 的模組裡,不能寫在 conftest。
 
-FinMind 轉接層的測試以 `tests/data/finmind/` 裡事先錄下的回應當輸入;額度用盡、連不上這類錯誤的回應不錄,直接寫在測試裡。要重新錄的話,用不帶 token 的請求抓同一段日期,存成同樣的檔名:
+FinMind 轉接層的測試以 `tests/data/finmind/` 裡事先錄下的回應當輸入,檔名是 `<dataset>_<股票代號>.json`。上市的 2330、上櫃的 6488 與不存在的代號 99999 各錄一組;額度用盡、連不上這類錯誤的回應不錄,直接寫在測試裡。要重新錄的話,用不帶 token 的請求抓同一段日期,存成同樣的檔名:
 
 ```bash
-curl -s 'https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockPrice&data_id=2330&start_date=2026-10-01&end_date=2026-10-14' \
-  > backend/tests/data/finmind/TaiwanStockPrice_2330.json
+cd backend/tests/data/finmind
+base='https://api.finmindtrade.com/api/v4/data'
+dates='start_date=2026-10-01&end_date=2026-10-14'
+for id in 2330 6488 99999; do
+  for dataset in TaiwanStockPrice TaiwanStockMarginPurchaseShortSale \
+      TaiwanStockShareholding TaiwanStockInstitutionalInvestorsBuySell; do
+    curl -s "$base?dataset=$dataset&data_id=$id&$dates" > "${dataset}_${id}.json"
+  done
+done
 ```
+
+2330 與 6488 每個交易日都有完整的籌碼資料。測試要模擬缺資料的日子時,從錄下的回應裡拿掉那一天,不另外錄檔。
 
 ### Algorithm regression test
 

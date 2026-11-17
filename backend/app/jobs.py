@@ -15,6 +15,7 @@ from contextlib import closing
 from pathlib import Path
 
 from app import store
+from app.features import IncompleteDataError
 from app.market import MarketDataSource, QuotaExceededError, SourceUnavailableError
 from app.runs import InsufficientHistoryError, RunConfig, StockNotFoundError, run
 
@@ -146,5 +147,7 @@ def _failure_reason(error: Exception) -> str:
             )
         case SourceUnavailableError():
             return f"資料來源連不上或回應異常。細節:{error}"
+        case IncompleteDataError():
+            return f"資料來源的資料有缺漏,這支股票目前無法執行。細節:{error}"
         case _:
             return f"程式錯誤,請回報這個問題。細節:{type(error).__name__}: {error}"

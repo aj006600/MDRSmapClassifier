@@ -18,6 +18,10 @@ import mdrsmap
 from app.features import feature_table
 from app.market import MarketDataSource
 
+# 特徵表開頭算不出技術指標的日子,以及最新幾天還沒公布籌碼資料的日子,
+# 加起來不到這麼多個交易日
+_WARMUP_DAYS = 60
+
 
 class StockNotFoundError(Exception):
     """資料來源在抓資料的區間裡沒有這支股票的任何一個交易日。"""
@@ -89,7 +93,10 @@ def run(
     daily = source.daily(stock_id, _fetch_from(today, trading_days), today)
     if daily.empty:
         raise StockNotFoundError(stock_id)
-    table = feature_table(daily).iloc[-trading_days:]
+    # 抓回來的日子多出一段長假的餘裕。只把用得到的日子交給特徵表,
+    # 更早的日子有缺漏時才不會讓執行失敗
+    used = daily.iloc[-(trading_days + _WARMUP_DAYS) :]
+    table = feature_table(used).iloc[-trading_days:]
     if len(table) < trading_days:
         raise InsufficientHistoryError(
             config.library_days, max(len(table) - config.lookback_days - 1, 0)
@@ -115,10 +122,9 @@ def run(
 def _fetch_from(today: date, trading_days: int) -> date:
     """回傳抓資料的起始日,要涵蓋 trading_days 個交易日與技術指標開頭算不出來的日子。
 
-    技術指標開頭算不出來的日子不到 60 個交易日。一年約 245 個交易日,
-    換算成日曆天約乘 1.5;這裡乘 2,留給長假的餘裕。
+    一年約 245 個交易日,換算成日曆天約乘 1.5;這裡乘 2,留給長假的餘裕。
     """
-    return today - timedelta(days=2 * (trading_days + 60))
+    return today - timedelta(days=2 * (trading_days + _WARMUP_DAYS))
 
 
 def _actual_directions(close: pd.Series, horizon: int) -> pd.Series:
