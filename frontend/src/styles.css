@@ -1,0 +1,80 @@
+/*
+ * 整頁的版面、表格、股票清單與頁尾的樣式。
+ * 手機寬度下不能出現水平捲動,所以表格寬度跟著版面,長字串也可以斷行。
+ */
+body {
+  margin: 0;
+  font-family: sans-serif;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+main {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 0.25rem 0.5rem;
+  border-bottom: 1px solid #ddd;
+  text-align: left;
+}
+
+tr.miss {
+  background: #fdecec;
+}
+
+summary {
+  cursor: pointer;
+}
+
+.error {
+  color: crimson;
+}
+
+.note {
+  color: #555;
+  font-size: 0.9rem;
+}
+
+.stock-list {
+  padding: 0;
+  list-style: none;
+}
+
+.stock-list a {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin-bottom: 0.5rem;
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.stock-list a[aria-current='true'] {
+  border-color: #333;
+}
+
+footer {
+  margin-top: 2rem;
+  border-top: 1px solid #ddd;
+  color: #555;
+  font-size: 0.9rem;
+}

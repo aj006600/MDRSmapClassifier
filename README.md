@@ -1,6 +1,6 @@
 # MDR S-map Classifier
 
-用 MDR S-map 預測台股個股的 Direction。專案正從碩士論文的研究程式改寫成可以自己架設的服務。目前在網頁輸入股票代號(上市、上櫃皆可)並選擇 Horizon,服務會向 FinMind 抓這支股票的每日資料、做 Search、逐日預測到最新的交易日,然後顯示 Backtest 的準確率與 Forecast。用詞的定義見 [GLOSSARY.md](GLOSSARY.md)。
+用 MDR S-map 預測台股個股的 Direction。專案正從碩士論文的研究程式改寫成可以自己架設的服務。目前在網頁輸入股票代號(上市、上櫃皆可)並選擇 Horizon,服務會向 FinMind 抓這支股票的每日資料、做 Search、逐日預測到最新的交易日,然後顯示 Forecast,以及 Backtest 的準確率、同期間 Direction 為 1 的天數比例與逐日明細。執行過的股票列在網頁下方的清單,點選就能再看它的結果。用詞的定義見 [GLOSSARY.md](GLOSSARY.md)。
 
 ## Quick Start
 
@@ -21,7 +21,7 @@ make local-down  # 停止並清理 container 與 network
 
 ## Data Source
 
-每日資料來自 [FinMind](https://finmindtrade.com/) 的免費 API。不填 token 也能使用;想要更高的每小時請求額度,在 FinMind 註冊後把 token 填進 `.env` 的 `FINMIND_TOKEN`。資料只存在你自己的機器上,使用時請自行遵守 FinMind 的使用條款。
+每日資料來自 [FinMind](https://finmindtrade.com/) 的免費 API。不填 token 也能使用;想要更高的每小時請求額度,在 FinMind 註冊後把 token 填進 `.env` 的 `FINMIND_TOKEN`。資料只存在你自己的機器上;API 只回傳預測與統計,不提供原始市場資料的下載。使用時請自行遵守 FinMind 的使用條款。
 
 ## Docs
 
