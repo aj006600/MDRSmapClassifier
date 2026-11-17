@@ -9,6 +9,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 FROM base AS dev
 RUN uv sync --frozen
 COPY app ./app
+COPY mdrsmap ./mdrsmap
 COPY tests ./tests
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
@@ -18,6 +19,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload
 FROM base AS runtime
 RUN uv sync --frozen --no-dev
 COPY app ./app
+COPY mdrsmap ./mdrsmap
 RUN useradd --create-home --uid 1000 appuser
 USER appuser
 EXPOSE 8000

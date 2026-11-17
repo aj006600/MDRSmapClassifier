@@ -1,6 +1,6 @@
 # MDR S-map Classifier
 
-用 MDR S-map 預測台股個股的 Direction。專案正從碩士論文的研究程式改寫成可以自己架設的服務,目前只有前後端的骨架。用詞的定義見 [GLOSSARY.md](GLOSSARY.md)。
+用 MDR S-map 預測台股個股的 Direction。專案正從碩士論文的研究程式改寫成可以自己架設的服務,目前有前後端的骨架,以及從論文搬進後端的演算法套件。用詞的定義見 [GLOSSARY.md](GLOSSARY.md)。
 
 ## Quick Start
 
@@ -29,12 +29,13 @@ make local-down  # 停止並清理 container 與 network
 
 ```
 .
-├── backend/          # FastAPI + uv;tests/ 與 uv.lock 也在這裡
+├── backend/          # uv 管理;tests/ 與 uv.lock 也在這裡
+│   ├── app/          # FastAPI
+│   └── mdrsmap/      # 論文的演算法,獨立於網頁 API
 ├── frontend/         # React + Vite,由 nginx 提供靜態檔並把 /api 代理到 backend
 ├── compose.yaml      # 服務與內部接線
 ├── compose.local.yaml # 本機開發:發佈 localhost 埠、後端 hot reload
 ├── Makefile          # make help 列出所有指令
-├── main/ · notebooks/ # 論文的研究程式,之後會搬進 backend
 └── data/             # 論文使用的匯出資料
 ```
 

@@ -8,6 +8,7 @@ services:
       target: dev            # dev stage 含 pytest/ruff;啟動指令(--reload)由該 stage 的 CMD 提供
     volumes:
       - ./backend/app:/app/app
+      - ./backend/mdrsmap:/app/mdrsmap
       - ./backend/tests:/app/tests
     ports:
       - "127.0.0.1:${PORT:-8000}:8000"

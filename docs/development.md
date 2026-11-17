@@ -57,7 +57,7 @@ docker run --rm --platform linux/amd64 -v "$PWD/backend":/app -w /app \
 
 ## Hot Reload
 
-`make local` 掛載 `backend/app/` 與 `backend/tests/`,改 Python 檔立即生效。
+`make local` 掛載 `backend/app/`、`backend/mdrsmap/` 與 `backend/tests/`,改 Python 檔立即生效。
 **改 `pyproject.toml` / `uv.lock` 要重跑 `make local`**(相依烤在 image 裡,掛載蓋不到)。
 
 前端在 `make local` 下是 build 好的靜態檔,改 jsx 不會即時反映;要前端 hot reload 就直接
@@ -69,6 +69,7 @@ docker run --rm --platform linux/amd64 -v "$PWD/backend":/app -w /app \
 make test                             # 完整套 pytest,跟 CI 一樣
 make test ARGS="tests/test_main.py"   # 只跑一個檔
 make test ARGS="-k health"            # 只跑名字符合的測試
+make test ARGS='-m "not slow"'        # 略過慢速測試(演算法的回歸測試)
 make lint                             # ruff check 與 ruff format --check
 make format                           # ruff format(就地改檔)
 ```
@@ -81,12 +82,18 @@ make format                           # ruff format(就地改檔)
 CI 在乾淨的機器上對**合併後的結果**跑完整套,答「合進 main 能不能用」——CI 不信任本機的結果,那次不能省。
 能省的是本機那次的**範圍**:
 
-1. **開發中**只跑跟改動相關的測試,幾秒一輪。`tests/` 鏡射 `app/` 的結構,改 `app/x.py` 就跑
-   `make test ARGS="tests/test_x.py"`;修一個紅的測試就 `ARGS="-k <測試名>"`。
+1. **開發中**只跑跟改動相關的測試,幾秒一輪。`tests/` 鏡射原始碼的結構,改 `app/x.py` 就跑
+   `make test ARGS="tests/test_x.py"`,改 `mdrsmap/x.py` 就跑 `tests/mdrsmap/test_x.py`;修一個紅的測試就 `ARGS="-k <測試名>"`。
 2. **commit 前**跑 `make lint`,幾秒。
 3. **push、開 PR**,CI 跑完整套,不用等它,繼續做別的;紅了再回來修。
 
 只有改到共用的東西(相依、設定、conftest / 共用 fixture、跨多個模組)或不確定影響範圍時,才在 push 前跑一次完整的 `make test`。
+
+### Algorithm regression test
+
+`tests/mdrsmap/` 的回歸測試以論文的 2330 資料與設定(Horizon 10、起點 2023-07-01)跑一次完整的 Search,驗證準確率與逐日預測都和存好的標準答案 `tests/mdrsmap/data/2330_directions.csv` 相同。它標成 `slow`:在 Apple Silicon 上模擬 amd64 要跑好幾分鐘,本機可以用 `-m "not slow"` 略過,CI 每次都跑。
+
+標準答案只在刻意改變演算法時重新產生:在 dev stage 容器裡以 `tests/mdrsmap/conftest.py` 的 `load_paper_features()` 讀出同一份資料、跑 `mdrsmap.search`,把逐日的 Direction 寫回那個 csv,並更新測試裡的準確率。結果只在同一個平台上可重現(pyEDM 的鄰居搜尋遇到距離平手時,順序取決於平台),所以一定要在容器裡產生。
 
 ## Inspection
 
