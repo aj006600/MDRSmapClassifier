@@ -11,6 +11,7 @@
 
 import time
 
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
@@ -325,6 +326,19 @@ def test_unreachable_source_fails_saying_the_source_has_a_problem(database, run_
     assert "資料來源連不上" in ended["error"]
     # 資料來源給的細節也要讓使用者看到
     assert "Name or service not known" in ended["error"]
+
+
+def test_gap_in_source_data_fails_naming_the_missing_days(daily, database, run_config):
+    # 資料來源漏了連續兩天的外資持股,沒有合理的值可以補
+    gapped = daily.copy()
+    gap = gapped.index[-15:-13]
+    gapped.loc[gap, "foreign_shares"] = pd.NA
+
+    ended = _run_job(FixedSource(gapped), database, run_config)
+
+    assert ended["status"] == "failed"
+    assert "資料來源的資料有缺漏" in ended["error"]
+    assert gap[0].date().isoformat() in ended["error"]
 
 
 def test_unexpected_error_fails_saying_it_is_a_program_error(database, run_config):

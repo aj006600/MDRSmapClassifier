@@ -45,7 +45,7 @@ make local-down  # 停止並清理 container 與 network
 - Library 取起點之前的 600 個交易日,不足 600 個交易日的股票不執行。這兩個數字設定在 `backend/app/runs.py` 的 `RunConfig`
 - 演算法的設定值在 `backend/mdrsmap/config.py`,預設為論文的值
 
-失敗原因是寫給使用者看的。查無股票代號、歷史資料不足、資料來源額度用盡、資料來源連不上或回應異常,各有自己的說明;其他例外一律標成程式錯誤並附上例外的內容。對應寫在 `backend/app/jobs.py` 的 `_failure_reason`。
+失敗原因是寫給使用者看的。查無股票代號、歷史資料不足、資料來源額度用盡、資料來源連不上或回應異常、資料來源的資料有補不了的缺漏,各有自己的說明;其他例外一律標成程式錯誤並附上例外的內容。對應寫在 `backend/app/jobs.py` 的 `_failure_reason`。
 
 資料庫是 SQLite,檔案在 backend container 的 `/data/mdrsmap.db`,`/data` 掛的是 named volume `data`。各種操作對資料的影響:
 
