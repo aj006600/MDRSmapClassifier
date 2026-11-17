@@ -29,7 +29,7 @@ PR 有 conflict 時自行 `git rebase origin/main` 再 force-push 自己的 feat
 - **文檔同步**:user-facing 變更(指令、架構、安裝步驟)在**同一個 PR** 內同步 README/docs——文檔更新是變更的一部分,不是事後待辦。
 - **文件只講自己**:ADR 與文件只描述本專案自己的決策與理由,不記錄本專案不使用的系統的識別名或狀態(別人的 database、service、container);要指涉時用它與本專案的關係描述(「同一台伺服器上既有的那顆 database」)。
 - **文件不寫 issue 與 PR 編號**:README 與 `docs/` 下的文件(含 ADR 與 research)不寫 `#N`、`!N` 當出處,理由直接用白話寫出來;出處在 git 歷史裡。`docs/agents/` 是寫給 agent 的操作說明,不在此限。
-- **程式碼註釋**:繁體中文(術語英文),不用 emoji。讀者是會這個語言、讀過專案的 domain 文件(<例:CONTEXT.md>),但沒看過 ADR、issue、也沒參與過討論的人——他只讀這一則就要懂。
+- **程式碼註釋**:繁體中文(術語英文),不用 emoji。讀者是會這個語言、讀過專案的 domain 文件(`GLOSSARY.md`),但沒看過 ADR、issue、也沒參與過討論的人——他只讀這一則就要懂。
   - **寫什麼**:檔案 header 寫這個檔負責什麼、為什麼存在;function / class 的 docstring 寫對呼叫者的承諾與陷阱,名字與 signature 已經說完的就不寫;行內註釋只寫約束、陷阱、非顯然的理由,不敘述下一行做什麼。
   - **怎麼寫**:一句只講一件事,主詞動詞齊全;三件以上並列的子句就用清單(名詞列舉不算);不用符號(`→`、`×`、`=`)代替動詞,不用自創縮語;不解釋就能用的詞只有 domain 文件的詞彙與該語言 / library 的標準術語。寧可多一行,不要省掉主詞。docstring 第一句要短(一行放得下,依 formatter 行寬,全形字算兩格),放不下就拆成一句摘要、空一行、再接內文。
   - **不寫什麼**:不寫 issue 編號與 ADR 編號,理由直接用白話寫出來;不寫會過期的事(目前誰在呼叫、把實作步驟再講一遍)。只有理由長到放不下、且這段 code 看起來像寫錯時,才在最後加一行指向 `docs/` 下的完整檔案路徑。
@@ -37,3 +37,20 @@ PR 有 conflict 時自行 `git rebase origin/main` 再 force-push 自己的 feat
 - **規則提議**:同類糾正或卡關**第二次**發生(或一次但代價高:不可逆操作、部署事故級),主動提議把教訓寫進來——先展示擬新增的那一行與觸發原因,我同意才寫。歸位優先序:能用工具強制的進工具/CI → 綁定單檔的進該檔註釋 → 概念進 `docs/` → 決策進 `docs/adr/` → 都不是且每個 session 都適用,才進 CLAUDE.md。
 - **測試品質**(pytest 範例,依測試框架調整):單元測試目錄鏡射原始碼模組結構;fixture 先用 conftest 既有的,重複自建即違規;測試名稱與 docstring 必須與實際行為一致;每個測試驗證一個真實行為——斷言偶然字串(使用者可見的契約訊息除外)、恆真斷言、與既有測試重複覆蓋的,一律刪除。
 - **技術調研**:用到不熟悉或版本敏感的 API/框架時,**先查證再寫**——context7 查 library 文檔、WebSearch/WebFetch 查一手來源、`gh search` 找官方範例與成熟專案;大題目啟用 `/research`(背景 agent、只認一手來源、產出帶引用的 Markdown 進 repo)。外部資訊一律**驗證(實測或對照官方文檔)後才採用**。
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live as GitHub issues in this repo, managed through the `gh` CLI.
+See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles, each label string equal to its name.
+See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` at the repo root, ADRs under `docs/adr/`.
+See `docs/agents/domain.md`.
