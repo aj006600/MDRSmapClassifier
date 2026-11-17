@@ -93,7 +93,7 @@ CI 在乾淨的機器上對**合併後的結果**跑完整套,答「合進 main 
 
 `tests/mdrsmap/` 的回歸測試以論文的 2330 資料與設定(Horizon 10、起點 2023-07-01)跑一次完整的 Search,驗證準確率與逐日預測都和存好的標準答案 `tests/mdrsmap/data/2330_directions.csv` 相同。它標成 `slow`:在 Apple Silicon 上模擬 amd64 要跑好幾分鐘,本機可以用 `-m "not slow"` 略過,CI 每次都跑。
 
-標準答案只在刻意改變演算法時重新產生:在 dev stage 容器裡對同一份資料跑 `mdrsmap.search`,把逐日的 Direction 寫回那個 csv,並更新測試裡的準確率。結果只在同一個平台上可重現(pyEDM 的鄰居搜尋遇到距離平手時,順序取決於平台),所以一定要在容器裡產生。
+標準答案只在刻意改變演算法時重新產生:在 dev stage 容器裡以 `tests/mdrsmap/conftest.py` 的 `load_paper_features()` 讀出同一份資料、跑 `mdrsmap.search`,把逐日的 Direction 寫回那個 csv,並更新測試裡的準確率。結果只在同一個平台上可重現(pyEDM 的鄰居搜尋遇到距離平手時,順序取決於平台),所以一定要在容器裡產生。
 
 ## Inspection
 

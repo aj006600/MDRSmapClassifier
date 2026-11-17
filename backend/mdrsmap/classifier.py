@@ -13,9 +13,6 @@ from sklearn.preprocessing import MinMaxScaler
 from mdrsmap import edm
 from mdrsmap.config import Config
 
-# Horizon 天前的 Direction。它在當天收盤後已經揭曉,所以能當作當天的特徵
-_LAGGED_DIRECTION = "lagged_direction"
-
 
 @dataclass(frozen=True)
 class Params:
@@ -28,7 +25,7 @@ class Params:
     features: tuple[str, ...]
     """CCM 選出的特徵,順序就是模型輸入欄位的順序。"""
     views: tuple[edm.View, ...]
-    logistic: edm.Logistic
+    model: edm.ModelSettings
 
 
 def search(
@@ -39,8 +36,15 @@ def search(
 ) -> tuple[Params, pd.Series]:
     """以 start 當天與之前的資料做 Search,再從 start 逐日預測到特徵表的最後一天。
 
-    features 以交易日(DatetimeIndex,由舊到新)為 index,每一欄是一個數值特徵,不能有缺值,
-    而且必須有收盤價 `close` 欄。欄名不能含空白,欄位的順序會影響 Search 的結果。
+    features 的格式:
+
+    - index 是交易日(DatetimeIndex),由舊到新排列
+    - 每一欄是一個數值特徵,不能有缺值
+    - 每一列只能含當天收盤後已知的值,因為 Search 也會用到 start 當天那一列
+    - 必須有收盤價 `close` 欄
+    - 欄名不能含空白
+    - 欄位的順序會影響 Search 的結果
+
     start 不是交易日時,從它之後的第一個交易日開始。
 
     回傳找到的參數,以及從 start 起每個交易日的 Direction(0 或 1,以交易日為 index)。
@@ -50,36 +54,27 @@ def search(
     first = int(table.index.searchsorted(pd.Timestamp(start)))
     data = _library_with(table, first, first)
 
-    target_dimension = edm.target_embedding_dimension(
-        data, _LAGGED_DIRECTION, config.validation_days
+    target_dimension = edm.target_embedding_dimension(data, config.validation_days)
+    selected = tuple(
+        edm.select_features(data, target_dimension, config.max_embedding_dimension)
     )
-    selected = edm.select_features(
-        data, _LAGGED_DIRECTION, target_dimension, config.max_embedding_dimension
-    )
-    embedded = edm.embed(data, _LAGGED_DIRECTION, tuple(selected), config.max_lag)
+    embedded = edm.embed(data, selected, config.max_lag)
     views = edm.random_views(
         embedded,
-        _LAGGED_DIRECTION,
         target_dimension,
         config.validation_days,
         config.random_search_trials,
         config.top_views,
     )
-    logistic = edm.select_logistic(
-        embedded.filter(like="(t-0)"),
-        _LAGGED_DIRECTION,
-        edm.weighted_distances(embedded, views),
-        config.thetas,
-        horizon,
-        config.validation_days,
-    )
     params = Params(
         horizon=horizon,
         start=table.index[first].date(),
         max_lag=config.max_lag,
-        features=tuple(selected),
+        features=selected,
         views=views,
-        logistic=logistic,
+        model=edm.select_model(
+            embedded, views, config.thetas, horizon, config.validation_days
+        ),
     )
     return params, _directions(table, params, first)
 
@@ -107,7 +102,7 @@ def _modeling_table(features: pd.DataFrame, horizon: int) -> pd.DataFrame:
     """在特徵表最後加上 Horizon 天前的 Direction,並丟掉算不出它的開頭幾列。"""
     close = features["close"]
     lagged = (close.rolling(horizon).mean() - close.shift(horizon) >= 0).astype(float)
-    return features.assign(**{_LAGGED_DIRECTION: lagged}).iloc[horizon:]
+    return features.assign(**{edm.TARGET: lagged}).iloc[horizon:]
 
 
 def _directions(table: pd.DataFrame, params: Params, first: int) -> pd.Series:
@@ -123,14 +118,8 @@ def _directions(table: pd.DataFrame, params: Params, first: int) -> pd.Series:
 
 def _predict_day(table: pd.DataFrame, start: int, day: int, params: Params) -> int:
     data = _library_with(table, start, day)
-    embedded = edm.embed(data, _LAGGED_DIRECTION, params.features, params.max_lag)
-    return edm.predict(
-        embedded.filter(like="(t-0)"),
-        _LAGGED_DIRECTION,
-        edm.weighted_distances(embedded, params.views),
-        params.logistic,
-        params.horizon,
-    )
+    embedded = edm.embed(data, params.features, params.max_lag)
+    return edm.predict(embedded, params.views, params.model, params.horizon)
 
 
 def _library_with(table: pd.DataFrame, start: int, day: int) -> pd.DataFrame:

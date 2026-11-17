@@ -2,7 +2,8 @@
 
 回歸測試以論文的 2330 資料與設定執行,驗證重構沒有改變演算法算出的結果。
 標準答案 data/2330_directions.csv 在鎖定的環境(backend 的 dev stage 容器)下
-以這個套件產生,產生時已確認逐日預測與搬進套件之前的論文程式完全相同。
+以這個套件產生。產生時已確認:舊程式算得出的日子(到 2023-10-31 為止),
+逐日預測與搬進套件之前的論文程式完全相同。
 只有刻意改變演算法時才重新產生它。
 """
 
@@ -21,7 +22,7 @@ PAPER_BACKTEST_END = "2023-10-31"
 GOLDEN = Path(__file__).parent / "data" / "2330_directions.csv"
 
 # 調小到 Search 幾秒內跑完。結果不對應論文,只用來驗證操作之間的一致性
-SMALL = Config(
+FAST = Config(
     top_views=5,
     max_embedding_dimension=2,
     max_lag=3,
@@ -43,15 +44,15 @@ def paper_search(paper_features):
 
 
 @pytest.fixture(scope="module")
-def small_features(paper_features):
+def fast_features(paper_features):
     return paper_features.loc[
         "2022-07-01":"2023-07-31", ["close", "volume", "MACD", "RSI14"]
     ]
 
 
 @pytest.fixture(scope="module")
-def small_search(small_features):
-    return search(small_features, PAPER_HORIZON, PAPER_START, SMALL)
+def fast_search(fast_features):
+    return search(fast_features, PAPER_HORIZON, PAPER_START, FAST)
 
 
 @pytest.mark.slow
@@ -72,34 +73,31 @@ def test_search_directions_match_golden(paper_search):
     ) == dict(zip(golden["date"], golden["direction"], strict=True))
 
 
-def test_forecast_with_saved_params_matches_one_search_run(
-    small_features, small_search
-):
+def test_forecast_with_saved_params_matches_one_search_run(fast_features, fast_search):
     params, searched = search(
-        small_features.loc[:"2023-07-14"], PAPER_HORIZON, PAPER_START, SMALL
+        fast_features.loc[:"2023-07-14"], PAPER_HORIZON, PAPER_START, FAST
     )
     continued = forecast(
-        small_features, params, since=searched.index[-1] + pd.Timedelta(days=1)
+        fast_features, params, since=searched.index[-1] + pd.Timedelta(days=1)
     )
-    pd.testing.assert_series_equal(pd.concat([searched, continued]), small_search[1])
+    pd.testing.assert_series_equal(pd.concat([searched, continued]), fast_search[1])
 
 
-def test_forecast_rejects_days_inside_library(small_features, small_search):
-    params, _ = small_search
+def test_forecast_rejects_days_inside_library(fast_features, fast_search):
+    params, _ = fast_search
     with pytest.raises(ValueError, match="Library"):
-        forecast(small_features, params, since=date(2023, 6, 30))
+        forecast(fast_features, params, since=date(2023, 6, 30))
 
 
-def test_search_in_spawned_process_matches_in_process(small_features, small_search):
-    # 執行流程會在另一個程序裡呼叫演算法。spawn 會在新的直譯器裡重新 import 呼叫端,
-    # 而且輸入與結果都要能 pickle
+def test_search_in_spawned_process_matches_in_process(fast_features, fast_search):
+    # spawn 在新的直譯器裡重新 import 套件,輸入與結果都要經過 pickle
     with multiprocessing.get_context("spawn").Pool(1) as pool:
         _, directions = pool.apply(
-            search, (small_features, PAPER_HORIZON, PAPER_START, SMALL)
+            search, (fast_features, PAPER_HORIZON, PAPER_START, FAST)
         )
-    pd.testing.assert_series_equal(directions, small_search[1])
+    pd.testing.assert_series_equal(directions, fast_search[1])
 
 
-def test_search_prints_nothing(small_features, capfd):
-    search(small_features.loc[:"2023-07-07"], PAPER_HORIZON, PAPER_START, SMALL)
+def test_search_writes_nothing_to_stdout(fast_features, capfd):
+    search(fast_features.loc[:"2023-07-07"], PAPER_HORIZON, PAPER_START, FAST)
     assert capfd.readouterr().out == ""

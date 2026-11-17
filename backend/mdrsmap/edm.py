@@ -1,8 +1,12 @@
-"""MDR S-map 的各個建模步驟,由 classifier 依序呼叫。
+"""MDR S-map 的各個建模步驟。
 
 步驟依序是目標嵌入維度、CCM 特徵選擇、多視角隨機搜尋、S-map 加權距離與 logistic 模型。
-每個步驟吃的表由 classifier 準備:第一欄是 pyEDM 要求的時間欄,
-其餘欄位已做 min-max 正規化,最後一列是要預測的那一天。
+每個步驟吃的表都是同一種格式:
+
+- 第一欄是 pyEDM 要求的時間欄 TIME
+- 其餘欄位已做 min-max 正規化,其中 TARGET 欄是要建模的目標
+- 最後一列是要預測的那一天
+
 pyEDM 以空白分隔欄位名,所以欄位名不能含空白。
 """
 
@@ -22,6 +26,10 @@ from sklearn.model_selection import GridSearchCV, PredefinedSplit
 
 TIME = "Time"
 
+# 目標是 Horizon 天前的 Direction。它在當天收盤後已經揭曉,所以能當作當天的特徵
+TARGET = "lagged_direction"
+_TARGET_TODAY = f"{TARGET}(t-0)"
+
 # 論文固定的亂數種子,用在多視角隨機搜尋。saga 每次 fit 也用同一個種子,
 # 同一天的模型才不會因為前面算過幾天而不同
 RANDOM_SEED = 87
@@ -39,36 +47,32 @@ class View(NamedTuple):
     columns: tuple[str, ...]
 
 
-class Logistic(NamedTuple):
-    """選定的 S-map theta 與彈性網路 logistic 的參數。"""
+class ModelSettings(NamedTuple):
+    """S-map 加權用的 theta,以及彈性網路 logistic 的 C 與 l1_ratio。"""
 
     theta: float
     c: float
     l1_ratio: float
 
 
-def target_embedding_dimension(
-    data: pd.DataFrame, target: str, validation_days: int
-) -> int:
-    """回傳 target 的最佳嵌入維度:驗證區間上 Simplex 預測 rho 最高的那一維。"""
-    n = len(data)
+def target_embedding_dimension(data: pd.DataFrame, validation_days: int) -> int:
+    """回傳 TARGET 的最佳嵌入維度:驗證區間上 Simplex 預測 rho 最高的那一維。"""
     result = EmbedDimension(
         dataFrame=data,
-        columns=target,
-        lib=f"1 {n}",
-        pred=f"{n - validation_days - 1} {n - 1}",
+        columns=TARGET,
         showPlot=False,
+        **_validation_window(len(data), validation_days),
     )
     return int(result["E"][result["rho"] == result["rho"].max()].iloc[0])
 
 
 def select_features(
-    data: pd.DataFrame, target: str, target_dimension: int, max_dimension: int
+    data: pd.DataFrame, target_dimension: int, max_dimension: int
 ) -> list[str]:
-    """以 CCM 挑出與 target 有因果關聯的特徵,順序與表的欄位順序相同。
+    """以 CCM 挑出與 TARGET 有因果關聯的特徵,順序與表的欄位順序相同。
 
     每個特徵先挑 CCM 最後一點 rho 最高的嵌入維度。在那一維下,
-    rho 必須隨 Library 長度單調上升(Kendall tau 檢定),
+    rho 與 Library 長度必須有顯著的單調關係(雙尾的 Kendall tau 檢定),
     而且最後一點的 rho 必須超過臨界值,這個特徵才入選。
     """
     n = len(data)
@@ -78,15 +82,15 @@ def select_features(
 
     selected = []
     for feature in data.columns[1:]:
-        if feature == target:
+        if feature == TARGET:
             continue
-        column = f"{target}:{feature}"
+        column = f"{TARGET}:{feature}"
         by_dimension = {
             e: CCM(
                 dataFrame=data,
                 E=e,
                 columns=feature,
-                target=target,
+                target=TARGET,
                 libSizes=lib_sizes,
                 random=False,
                 showPlot=False,
@@ -105,15 +109,13 @@ def select_features(
     return selected
 
 
-def embed(
-    data: pd.DataFrame, target: str, features: tuple[str, ...], max_lag: int
-) -> pd.DataFrame:
-    """把特徵與 target 展開成延遲欄位,丟掉延遲不足的開頭幾列。
+def embed(data: pd.DataFrame, features: tuple[str, ...], max_lag: int) -> pd.DataFrame:
+    """把特徵與 TARGET 展開成延遲欄位,丟掉延遲不足的開頭幾列。
 
     回傳的表第一欄是時間欄,其餘欄名形如 `close(t-0)`、`close(t-1)`。
     """
     embedded = Embed(
-        dataFrame=data, E=max_lag, tau=-1, columns=" ".join([*features, target])
+        dataFrame=data, E=max_lag, tau=-1, columns=" ".join([*features, TARGET])
     )
     embedded.insert(0, TIME, data[TIME])
     return embedded.dropna().reset_index(drop=True)
@@ -121,7 +123,6 @@ def embed(
 
 def random_views(
     embedded: pd.DataFrame,
-    target: str,
     target_dimension: int,
     validation_days: int,
     trials: int,
@@ -129,13 +130,12 @@ def random_views(
 ) -> tuple[View, ...]:
     """隨機抽 trials 次延遲欄位的組合,回傳 rho 最高的 top 個。
 
-    每個組合用 Simplex 預測 target 當天的值來算 rho。
-    組合的欄位數等於 target 的嵌入維度。抽到重複的組合會重複出現在結果裡。
+    每個組合用 Simplex 預測 TARGET 當天的值來算 rho。
+    組合的欄位數等於 TARGET 的嵌入維度。抽到重複的組合會重複出現在結果裡。
     """
     rng = np.random.RandomState(RANDOM_SEED)
-    current = f"{target}(t-0)"
-    candidates = np.array([c for c in embedded.columns[1:] if c != current])
-    m = len(embedded)
+    candidates = np.array([c for c in embedded.columns[1:] if c != _TARGET_TODAY])
+    window = _validation_window(len(embedded), validation_days)
 
     views = []
     for _ in range(trials):
@@ -145,11 +145,10 @@ def random_views(
         result = Simplex(
             dataFrame=embedded,
             columns=" ".join(columns),
-            target=current,
-            lib=f"1 {m}",
-            pred=f"{m - validation_days - 1} {m - 1}",
+            target=_TARGET_TODAY,
             embedded=True,
             showPlot=False,
+            **window,
         )
         rho = result["Observations"].corr(result["Predictions"])
         views.append(View(float(rho), tuple(str(c) for c in columns)))
@@ -161,7 +160,62 @@ def random_views(
     return tuple(views[i] for i in ranked.index[:top])
 
 
-def weighted_distances(embedded: pd.DataFrame, views: tuple[View, ...]) -> np.ndarray:
+def select_model(
+    embedded: pd.DataFrame,
+    views: tuple[View, ...],
+    thetas: tuple[float, ...],
+    horizon: int,
+    validation_days: int,
+) -> ModelSettings:
+    """對每個 theta 以 grid search 挑 logistic 的參數,回傳驗證區間準確率最高的組合。
+
+    準確率相同時取先試到的。
+    """
+    distances = _weighted_distances(embedded, views)
+    best: tuple[float, ModelSettings] | None = None
+    for theta in thetas:
+        x, y = _weighted_samples(embedded, distances, theta, horizon)
+        split = PredefinedSplit(
+            [-1] * (len(x) - validation_days) + [0] * validation_days
+        )
+        grid = GridSearchCV(_logistic(), _LOGISTIC_GRID, cv=split, scoring="accuracy")
+        with _known_sklearn_warnings_ignored():
+            grid.fit(x, y)
+        if best is None or grid.best_score_ > best[0]:
+            chosen = grid.best_params_
+            best = (
+                grid.best_score_,
+                ModelSettings(theta, chosen["C"], chosen["l1_ratio"]),
+            )
+    return best[1]
+
+
+def predict(
+    embedded: pd.DataFrame,
+    views: tuple[View, ...],
+    model: ModelSettings,
+    horizon: int,
+) -> int:
+    """以 S-map 加權 fit logistic 模型,回傳最後一列那一天的 Direction。"""
+    distances = _weighted_distances(embedded, views)
+    x, y = _weighted_samples(embedded, distances, model.theta, horizon)
+    with _known_sklearn_warnings_ignored():
+        fitted = _logistic(C=model.c, l1_ratio=model.l1_ratio).fit(x, y)
+    # 預測那一天離自己的距離是 0、權重是 1,所以直接用未加權的值
+    today = embedded.filter(like="(t-0)").iloc[[-1]]
+    return int(fitted.predict(today)[0])
+
+
+def _validation_window(n: int, validation_days: int) -> dict[str, str]:
+    """回傳 pyEDM 的 lib 與 pred 參數。
+
+    lib 是全部 n 列;pred 從第 n - validation_days - 1 列到第 n - 1 列(從 1 起算),
+    不含最後一列。
+    """
+    return {"lib": f"1 {n}", "pred": f"{n - validation_days - 1} {n - 1}"}
+
+
+def _weighted_distances(embedded: pd.DataFrame, views: tuple[View, ...]) -> np.ndarray:
     """回傳列與列之間的距離矩陣:各視角的歐氏距離,以 rho 占比為權重加總。"""
     rho = pd.Series([view.rho for view in views])
     weights = rho / rho.sum()
@@ -171,50 +225,6 @@ def weighted_distances(embedded: pd.DataFrame, views: tuple[View, ...]) -> np.nd
             pdist(embedded[list(view.columns)].to_numpy(), metric="euclidean") * weight
         )
     return distances
-
-
-def select_logistic(
-    table: pd.DataFrame,
-    target: str,
-    distances: np.ndarray,
-    thetas: tuple[float, ...],
-    horizon: int,
-    validation_days: int,
-) -> Logistic:
-    """對每個 theta 以 grid search 挑 logistic 的參數,回傳驗證區間準確率最高的組合。
-
-    table 是只留當天延遲欄位的表。準確率相同時取先試到的。
-    """
-    best: tuple[float, Logistic] | None = None
-    for theta in thetas:
-        x, y = _weighted_training_set(table, target, distances, theta, horizon)
-        split = PredefinedSplit(
-            [-1] * (len(x) - validation_days) + [0] * validation_days
-        )
-        search = GridSearchCV(_logistic(), _LOGISTIC_GRID, cv=split, scoring="accuracy")
-        with _known_sklearn_warnings_ignored():
-            search.fit(x, y)
-        if best is None or search.best_score_ > best[0]:
-            params = search.best_params_
-            best = (
-                search.best_score_,
-                Logistic(theta, params["C"], params["l1_ratio"]),
-            )
-    return best[1]
-
-
-def predict(
-    table: pd.DataFrame,
-    target: str,
-    distances: np.ndarray,
-    logistic: Logistic,
-    horizon: int,
-) -> int:
-    """以 S-map 加權訓練 logistic 模型,回傳最後一列那一天的 Direction。"""
-    x, y = _weighted_training_set(table, target, distances, logistic.theta, horizon)
-    with _known_sklearn_warnings_ignored():
-        model = _logistic(C=logistic.c, l1_ratio=logistic.l1_ratio).fit(x, y)
-    return int(model.predict(table.iloc[[-1]])[0])
 
 
 def _logistic(**params: float) -> LogisticRegression:
@@ -246,30 +256,28 @@ def _known_sklearn_warnings_ignored() -> Iterator[None]:
         yield
 
 
-def _weighted_training_set(
-    table: pd.DataFrame,
-    target: str,
+def _weighted_samples(
+    embedded: pd.DataFrame,
     distances: np.ndarray,
     theta: float,
     horizon: int,
 ) -> tuple[pd.DataFrame, pd.Series]:
-    """以離最後一列的距離加權每一列,回傳訓練用的特徵與答案。
+    """以離最後一列的距離加權每一列,回傳 logistic 模型 fit 用的特徵與答案。
 
-    第 t 列的答案是 t + horizon 列的 target,也就是第 t 天的 Direction。
-    最後 horizon + 1 列不放進訓練資料:最後 horizon 列的答案還沒揭曉,
-    多丟的一列沿用論文程式的做法。
+    特徵只取當天的延遲欄位。第 t 列的答案是 t + horizon 列的 TARGET,
+    也就是第 t 天的 Direction。最後 horizon + 1 列不放進來:
+    最後 horizon 列的答案還沒揭曉,多丟的一列沿用論文程式的做法。
     """
-    current = f"{target}(t-0)"
-    last = len(table) - 1
+    last = len(embedded) - 1
     to_last = distances[last]
     scale = np.mean(np.delete(to_last, last))
     weight = np.sqrt(np.exp(-theta * to_last / scale))
 
-    weighted = table.copy()
-    weighted["answer"] = weighted[current].shift(-horizon)
+    weighted = embedded.filter(like="(t-0)")
+    weighted["answer"] = weighted[_TARGET_TODAY].shift(-horizon)
     weighted = weighted.multiply(weight, axis=0)
     # Direction 乘上權重後不再是 0 或 1,改回二元值
-    for column in (current, "answer"):
+    for column in (_TARGET_TODAY, "answer"):
         weighted[column] = weighted[column].ne(0).astype(float)
     weighted = weighted[: -(horizon + 1)]
     return weighted.drop(columns="answer"), weighted["answer"]
