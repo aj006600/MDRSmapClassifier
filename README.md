@@ -17,11 +17,11 @@ make local-down  # 停止並清理 container 與 network
 - 後端健康檢查 → http://localhost:8000/health
 - API 文件 → http://localhost:8000/docs
 
-兩個埠只發佈到本機(`127.0.0.1`)。每次執行都會重新做 Search,一次要幾分鐘。算好的結果存在 Docker 的 volume 裡,服務重啟後還查得到。
+兩個埠只發佈到本機(`127.0.0.1`)。每次執行都會重新做 Search,一次要幾分鐘。可以連續發起好幾支股票:同一時間只跑一個,其餘依序排隊;關掉網頁再回來,排隊中與執行中的工作仍然看得到。最新交易日的資料還沒公布完時,執行以前一個資料齊全的交易日為準,結果會標明資料用到哪一天。算好的結果存在 Docker 的 volume 裡,服務重啟後還查得到;重啟當下正在執行的工作會標為失敗,需要重新發起。
 
 ## Data Source
 
-每日資料來自 [FinMind](https://finmindtrade.com/) 的免費 API。不填 token 也能使用;想要更高的每小時請求額度,在 FinMind 註冊後把 token 填進 `.env` 的 `FINMIND_TOKEN`。資料只存在你自己的機器上;API 只回傳預測與統計,不提供原始市場資料的下載。使用時請自行遵守 FinMind 的使用條款。
+每日資料來自 [FinMind](https://finmindtrade.com/) 的免費 API。不填 token 也能使用;想要更高的每小時請求額度,在 FinMind 註冊後把 token 填進 `.env` 的 `FINMIND_TOKEN`。額度用盡時,工作會失敗並註明是額度的問題。資料只存在你自己的機器上;API 只回傳預測與統計,不提供原始市場資料的下載。使用時請自行遵守 FinMind 的使用條款。
 
 ## Docs
 

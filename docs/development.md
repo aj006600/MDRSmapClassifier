@@ -36,10 +36,16 @@ make local-down  # 停止並清理 container 與 network
 
 ## Runs and storage
 
-一次執行的流程:API 收到發起執行的請求後,把工作記進資料庫,然後用 `spawn` 開一個背景程序去跑,自己立刻回應。背景程序依序經過三個階段:抓資料、Search、逐日預測。它把目前的階段、結果與失敗原因寫進資料庫,API 再從資料庫讀出來回給前端。
+一次執行的流程:API 收到發起執行的請求後,把工作記進資料庫就回應。後端啟動時開一條派工的執行緒(`backend/app/jobs.py` 的 `Worker`),依發起的順序一次取出一個排隊中的工作,用 `spawn` 開一個背景程序去跑,跑完才取下一個。背景程序依序經過三個階段:抓資料、Search、逐日預測。它把目前的階段、結果與失敗原因寫進資料庫,API 再從資料庫讀出來回給前端。
 
-- 起點是最新交易日往前 100 個交易日,Library 取起點之前的 600 個交易日,設定在 `backend/app/runs.py` 的 `RunConfig`
+- 同一支股票同一個 Horizon 已經有排隊中或執行中的工作時,再次發起會回傳那個工作,不新增
+- 後端停止時會終止執行中的背景程序。下次啟動時,上次還在執行中的工作標為失敗、不重跑;排隊中的工作照原本的順序繼續
+- 背景程序沒寫下結果就結束(例如記憶體不足被系統終止)時,工作標為失敗
+- 起點是最新交易日往前 100 個交易日。最新交易日是最近一個資料齊全的交易日,資料還沒公布完的交易日不算
+- Library 取起點之前的 600 個交易日,不足 600 個交易日的股票不執行。這兩個數字設定在 `backend/app/runs.py` 的 `RunConfig`
 - 演算法的設定值在 `backend/mdrsmap/config.py`,預設為論文的值
+
+失敗原因是寫給使用者看的。查無股票代號、歷史資料不足、資料來源額度用盡、資料來源連不上或回應異常,各有自己的說明;其他例外一律標成程式錯誤並附上例外的內容。對應寫在 `backend/app/jobs.py` 的 `_failure_reason`。
 
 資料庫是 SQLite,檔案在 backend container 的 `/data/mdrsmap.db`,`/data` 掛的是 named volume `data`。各種操作對資料的影響:
 
@@ -74,6 +80,7 @@ docker run --rm --platform linux/amd64 -v "$PWD/backend":/app -w /app \
 ## Hot Reload
 
 `make local` 掛載 `backend/app/`、`backend/mdrsmap/` 與 `backend/tests/`,改 Python 檔立即生效。
+生效的方式是重新啟動後端,所以當下執行中的工作會被標為失敗,要重新發起。
 **改 `pyproject.toml` / `uv.lock` 要重跑 `make local`**(相依烤在 image 裡,掛載蓋不到)。
 
 前端在 `make local` 下是 build 好的靜態檔,改 jsx 不會即時反映;要前端 hot reload 就直接
@@ -107,9 +114,9 @@ CI 在乾淨的機器上對**合併後的結果**跑完整套,答「合進 main 
 
 ### API and data source tests
 
-API 的測試不連網路:資料來源換成 `tests/fakes.py` 裡回傳固定資料的假實作,演算法的設定在 `tests/conftest.py` 裡調小,每個測試用自己的暫時資料庫。執行一樣在背景程序裡跑,所以假資料來源要放在能被 import 的模組裡,不能寫在 conftest。
+API 的測試不連網路:資料來源換成 `tests/fakes.py` 裡的假實作,有的回傳固定資料,有的模擬失敗、一直不回應或讓程序直接結束。演算法的設定在 `tests/conftest.py` 裡調小,每個測試用自己的暫時資料庫。執行一樣在背景程序裡跑,所以假資料來源要放在能被 import 的模組裡,不能寫在 conftest。
 
-FinMind 轉接層的測試以 `tests/data/finmind/` 裡事先錄下的回應當輸入。要重新錄的話,用不帶 token 的請求抓同一段日期,存成同樣的檔名:
+FinMind 轉接層的測試以 `tests/data/finmind/` 裡事先錄下的回應當輸入;額度用盡、連不上這類錯誤的回應不錄,直接寫在測試裡。要重新錄的話,用不帶 token 的請求抓同一段日期,存成同樣的檔名:
 
 ```bash
 curl -s 'https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockPrice&data_id=2330&start_date=2026-10-01&end_date=2026-10-14' \
