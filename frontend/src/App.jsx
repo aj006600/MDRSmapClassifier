@@ -40,7 +40,6 @@ export default function App() {
     }
   }
 
-  // 工作還沒結束時,每隔一段時間重新查一次它的狀態
   useEffect(() => {
     if (!inProgress) return
     const timer = setTimeout(async () => {

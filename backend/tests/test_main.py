@@ -1,6 +1,11 @@
 """後端 HTTP API 的對外行為。
 
-資料來源換成回傳固定資料的假實作,演算法的設定調小,每個測試用自己的暫時資料庫。
+測試環境與正式環境有三點不同:
+
+- 資料來源換成回傳固定資料的假實作
+- 演算法的設定調小
+- 每個測試用自己的暫時資料庫
+
 執行在另一個程序裡跑,所以發起之後要輪詢工作直到結束。
 """
 
@@ -42,14 +47,14 @@ def test_health(client):
     assert response.json() == {"status": "ok"}
 
 
-def test_job_ends_with_backtest_and_forecast(client, daily, run_config):
-    response = client.post("/api/jobs", json={"stock_id": "2330"})
+def test_job_runs_through_stages_to_backtest_and_forecast(client, daily, run_config):
+    response = client.post("/api/jobs", json={"stock_id": "2330", "horizon": 10})
     assert response.status_code == 202
     job = response.json()
-    # 沒有指定 Horizon 時用 10
-    assert (job["status"], job["horizon"]) == ("queued", 10)
+    assert job["status"] == "queued"
 
-    assert _wait_until_done(client, job["id"])["status"] == "succeeded"
+    ended = _wait_until_done(client, job["id"])
+    assert (ended["status"], ended["stage"]) == ("succeeded", "predict")
     result = client.get("/api/results/2330/10").json()
 
     # 從起點到最新交易日共 lookback_days + 1 天,最後 Horizon 天是 Forecast,其餘計分
@@ -59,7 +64,19 @@ def test_job_ends_with_backtest_and_forecast(client, daily, run_config):
     ]
 
 
-def test_job_result_matches_another_run_with_same_data(client, fake_source, run_config):
+def test_job_without_horizon_uses_10(database, run_config):
+    # 這裡只看發起時的 Horizon;用一定失敗的資料來源,工作才會很快結束
+    source = FailingSource("不需要資料")
+    with TestClient(create_app(source, database, run_config)) as client:
+        job = client.post("/api/jobs", json={"stock_id": "2330"}).json()
+        _wait_until_done(client, job["id"])
+
+    assert job["horizon"] == 10
+
+
+def test_result_reports_backtest_and_forecast_of_the_run(
+    client, fake_source, run_config
+):
     job = client.post("/api/jobs", json={"stock_id": "2330", "horizon": 10}).json()
     _wait_until_done(client, job["id"])
     result = client.get("/api/results/2330/10").json()

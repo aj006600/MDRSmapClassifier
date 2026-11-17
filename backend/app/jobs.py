@@ -16,7 +16,7 @@ from app.runs import RunConfig, run
 logger = logging.getLogger(__name__)
 
 # 用 spawn 而不是 fork:API 程序有多條執行緒,fork 一個多執行緒的程序並不安全
-_PROCESSES = multiprocessing.get_context("spawn")
+_SPAWN = multiprocessing.get_context("spawn")
 
 
 def launch(
@@ -26,7 +26,7 @@ def launch(
 
     背景程序是 daemon:後端結束時會一起被終止,不會拖住後端的關閉。
     """
-    _PROCESSES.Process(
+    _SPAWN.Process(
         target=execute, args=(job_id, database, source, config), daemon=True
     ).start()
 

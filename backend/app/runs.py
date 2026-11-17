@@ -1,7 +1,7 @@
 """一次執行:對一支股票與一個 Horizon 抓資料、做 Search,再逐日預測到最新的交易日。
 
-起點是最新交易日往前 lookback_days 個交易日。Search 只拿到起點(含)以前的特徵表,
-起點之後的每一天沿用 Search 找到的參數預測。
+起點是最新交易日往前 lookback_days 個交易日。Search 只拿到起點當天收盤時已知的資料:
+起點之前的 Library,加上起點當天那一列。起點之後的每一天沿用 Search 找到的參數預測。
 已經知道實際 Direction 的日子屬於 Backtest;最後 Horizon 個交易日還沒揭曉,
 它們的預測就是 Forecast。
 """
@@ -69,13 +69,13 @@ def run(
     start = table.index[-1 - config.lookback_days]
 
     on_stage(Stage.SEARCH)
-    params, searched = mdrsmap.search(
+    params, start_day = mdrsmap.search(
         table.loc[:start], horizon, start, config.algorithm
     )
 
     on_stage(Stage.PREDICT)
-    later = mdrsmap.forecast(table, params, since=start + pd.Timedelta(days=1))
-    direction = pd.concat([searched, later])
+    after_start = mdrsmap.forecast(table, params, since=start + pd.Timedelta(days=1))
+    direction = pd.concat([start_day, after_start])
     actual = _actual_directions(table["close"], horizon)
     return RunResult(
         start=start.date(),
