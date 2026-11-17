@@ -21,6 +21,8 @@ RUN uv sync --frozen --no-dev
 COPY app ./app
 COPY mdrsmap ./mdrsmap
 RUN useradd --create-home --uid 1000 appuser
+# 資料庫的目錄。named volume 第一次掛上時沿用這個目錄的擁有者,appuser 才寫得進去
+RUN mkdir /data && chown appuser /data
 USER appuser
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

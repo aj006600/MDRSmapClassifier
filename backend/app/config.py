@@ -5,6 +5,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     log_level: str = "info"
+    finmind_token: str | None = None
 
 
 settings = Settings()
