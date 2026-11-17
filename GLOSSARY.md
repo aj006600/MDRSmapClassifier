@@ -13,7 +13,7 @@ Direction 往未來看的交易日數。
 _Avoid_: tp、TP、預測期
 
 **Forecast**:
-對最新一個交易日算出的 Direction,實際結果還沒揭曉。
+對實際結果還沒揭曉的交易日算出的 Direction。最近 Horizon 個交易日的實際結果都還沒揭曉,所以每一天各有一筆 Forecast。
 _Avoid_: realtime、single_pred、即時預測
 
 **Backtest**:

@@ -11,8 +11,8 @@ make local-down  # 停止並清理 container 與 network
 
 乾淨 clone 不必先建任何檔案:`make local` 發現缺 `.env` 時會從 `.env.example` 複製一份。
 
-- 前端 → http://localhost:3000(頁面會顯示後端的回應,證明接通了)
-- 後端 → http://localhost:8000/health
+- 前端 → http://localhost:3000
+- 後端 → http://localhost:8000/health,API 文件在 http://localhost:8000/docs
 
 兩個埠只發佈到 loopback(`127.0.0.1`),同一個網路上的別台機器連不到。在遠端主機上開發時,用 SSH 或 VS Code 把埠轉接到自己的電腦。
 
@@ -33,6 +33,22 @@ make local-down  # 停止並清理 container 與 network
 | `.env` | 否 | 你這台機器實際讀的值;缺檔時 `make local` 自動從 example 複製 |
 
 新增變數:先加進 `.env.example`,再到自己的 `.env` 填值。
+
+## Runs and storage
+
+一次執行的流程:API 收到發起執行的請求後,把工作記進資料庫,然後用 `spawn` 開一個背景程序去跑,自己立刻回應。背景程序依序經過三個階段:抓資料、Search、逐日預測。它把目前的階段、結果與失敗原因寫進資料庫,API 再從資料庫讀出來回給前端。
+
+- 起點是最新交易日往前 100 個交易日,Library 取起點之前的 600 個交易日,設定在 `backend/app/runs.py` 的 `RunConfig`
+- 演算法的設定值在 `backend/mdrsmap/config.py`,預設為論文的值
+
+資料庫是 SQLite,檔案在 backend container 的 `/data/mdrsmap.db`,`/data` 掛的是 named volume `data`。各種操作對資料的影響:
+
+| 操作 | 資料庫 |
+|------|--------|
+| `make local-down`、Ctrl+C、重新 `make local` | 保留 |
+| `make clean` | 刪除(`down --volumes`) |
+
+資料表的結構變更寫在 `backend/app/store.py` 的 `_MIGRATIONS`,後端啟動時套用還沒套用的項目。只能在最後面新增,不能改動已經有人用過的項目。
 
 ## Backend platform
 
@@ -88,6 +104,17 @@ CI 在乾淨的機器上對**合併後的結果**跑完整套,答「合進 main 
 3. **push、開 PR**,CI 跑完整套,不用等它,繼續做別的;紅了再回來修。
 
 只有改到共用的東西(相依、設定、conftest / 共用 fixture、跨多個模組)或不確定影響範圍時,才在 push 前跑一次完整的 `make test`。
+
+### API and data source tests
+
+API 的測試不連網路:資料來源換成 `tests/fakes.py` 裡回傳固定資料的假實作,演算法的設定在 `tests/conftest.py` 裡調小,每個測試用自己的暫時資料庫。執行一樣在背景程序裡跑,所以假資料來源要放在能被 import 的模組裡,不能寫在 conftest。
+
+FinMind 轉接層的測試以 `tests/data/finmind/` 裡事先錄下的回應當輸入。要重新錄的話,用不帶 token 的請求抓同一段日期,存成同樣的檔名:
+
+```bash
+curl -s 'https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockPrice&data_id=2330&start_date=2026-10-01&end_date=2026-10-14' \
+  > backend/tests/data/finmind/TaiwanStockPrice_2330.json
+```
 
 ### Algorithm regression test
 

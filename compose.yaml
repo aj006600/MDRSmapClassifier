@@ -11,6 +11,10 @@ services:
     # ENV_FILE 只給清理用的 make target 改指到進版控的 .env.example:清理不該因為缺 .env 而失敗。
     env_file:
       - ${ENV_FILE:-.env}
+    # SQLite 資料庫放在 /data(見 backend/app/main.py 的 DATABASE)。
+    # 放在 named volume 裡,服務重啟或 container 重建後,算過的結果還在
+    volumes:
+      - data:/data
     # 不對外開埠,由 frontend nginx 代理 /api;healthcheck 用 python 因 bookworm-slim 無 curl
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -27,3 +31,6 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+volumes:
+  data:

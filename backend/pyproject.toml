@@ -11,6 +11,7 @@ dependencies = [
     "fastapi>=0.163.1",
     "uvicorn[standard]>=0.54.0",
     "pydantic-settings>=2.16.3",
+    "httpx2>=2.16.2",
     "pyedm==1.15.4",
     "setuptools<81",
     "scikit-learn<1.10",
@@ -19,7 +20,6 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=9.2.0",
-    "httpx2>=2.16.2",
     "ruff>=0.17.5",
     # 回歸測試讀論文的匯出試算表
     "openpyxl>=3.1.5",

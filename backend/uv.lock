@@ -44,6 +44,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "httpx2" },
     { name = "pydantic-settings" },
     { name = "pyedm" },
     { name = "scikit-learn" },
@@ -53,7 +54,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx2" },
     { name = "openpyxl" },
     { name = "pytest" },
     { name = "ruff" },
@@ -62,6 +62,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.163.1" },
+    { name = "httpx2", specifier = ">=2.16.2" },
     { name = "pydantic-settings", specifier = ">=2.16.3" },
     { name = "pyedm", specifier = "==1.15.4" },
     { name = "scikit-learn", specifier = "<1.10" },
@@ -71,7 +72,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx2", specifier = ">=2.16.2" },
     { name = "openpyxl", specifier = ">=3.1.5" },
     { name = "pytest", specifier = ">=9.2.0" },
     { name = "ruff", specifier = ">=0.17.5" },
