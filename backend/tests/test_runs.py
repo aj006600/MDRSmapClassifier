@@ -19,12 +19,28 @@ def test_search_ignores_data_after_start(fake_source, daily, run_config):
 
     changed = daily.copy()
     after_start = changed.index > pd.Timestamp(original.start)
-    changed.loc[after_start, ["open", "high", "low", "close"]] *= 1.1
-    changed.loc[after_start, "volume"] *= 2
+    prices = ["open", "high", "low", "close"]
+    changed.loc[after_start, prices] *= 1.1
+    changed.loc[after_start, changed.columns.drop(prices)] *= 2
     rerun = run(FixedSource(changed), "2330", 10, run_config)
 
     assert rerun.start == original.start
     assert rerun.params == original.params
+
+
+def test_run_ignores_gap_in_data_it_does_not_use(fake_source, daily, run_config):
+    # 執行抓回來的日子比 Library 加上回溯的日子多出一大段,留給技術指標與長假。
+    # 往前 90 個交易日以外,資料抓得到但用不到
+    used = run_config.library_days + run_config.lookback_days + 1
+    changed = daily.copy()
+    gap = changed.index[-(used + 90) : -(used + 87)]
+    changed.loc[gap, "foreign_shares"] = pd.NA
+
+    rerun = run(FixedSource(changed), "2330", 10, run_config)
+
+    pd.testing.assert_frame_equal(
+        rerun.days, run(fake_source, "2330", 10, run_config).days
+    )
 
 
 def test_run_in_another_process_predicts_the_same_days(fake_source, run_config):

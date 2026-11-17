@@ -5,6 +5,8 @@
 測試不連網路。
 """
 
+import json
+from collections.abc import Collection
 from datetime import date
 from pathlib import Path
 
@@ -16,26 +18,35 @@ from app.finmind import FinMindSource
 from app.market import QuotaExceededError, SourceUnavailableError
 
 RECORDED = Path(__file__).parent / "data" / "finmind"
-# 錄下的回應涵蓋的日期區間,每一支股票都相同
+# 錄下的回應涵蓋的日期區間,每個 dataset 與每支股票都相同
 FIRST_DAY = date(2026, 10, 1)
 LAST_DAY = date(2026, 10, 14)
 
 
-def _recorded_finmind(requests: list[httpx2.Request]) -> httpx2.MockTransport:
-    """回傳假的 FinMind:只有查詢條件與錄音時相同,才回錄下的回應。"""
+def _recorded_finmind(
+    requests: list[httpx2.Request], without: Collection[tuple[str, str]] = ()
+) -> httpx2.MockTransport:
+    """回傳假的 FinMind:只有查詢條件與錄音時相同,才回錄下的回應。
+
+    without 列出要從回應裡拿掉的 (dataset, 日期),模擬 FinMind 沒有那一天的資料。
+    """
 
     def handle(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
         params = request.url.params
-        recorded = RECORDED / f"TaiwanStockPrice_{params['data_id']}.json"
+        dataset = params["dataset"]
+        recorded = RECORDED / f"{dataset}_{params['data_id']}.json"
         if (
-            params["dataset"] != "TaiwanStockPrice"
-            or params["start_date"] != FIRST_DAY.isoformat()
+            params["start_date"] != FIRST_DAY.isoformat()
             or params["end_date"] != LAST_DAY.isoformat()
             or not recorded.exists()
         ):
             return httpx2.Response(404)
-        return httpx2.Response(200, content=recorded.read_bytes())
+        body = json.loads(recorded.read_bytes())
+        body["data"] = [
+            row for row in body["data"] if (dataset, row["date"]) not in without
+        ]
+        return httpx2.Response(200, json=body)
 
     return httpx2.MockTransport(handle)
 
@@ -51,6 +62,11 @@ def _recorded_finmind(requests: list[httpx2.Request]) -> httpx2.MockTransport:
                 "low": 2485.0,
                 "close": 2510.0,
                 "volume": 20666092,
+                "trading_value": 51702445610,
+                "margin_balance": 30658000,
+                "foreign_shares": 17944308863,
+                "trust_net_buy": 596450,
+                "dealer_net_buy": 602528,
             },
             id="twse",
         ),
@@ -62,6 +78,11 @@ def _recorded_finmind(requests: list[httpx2.Request]) -> httpx2.MockTransport:
                 "low": 1045.0,
                 "close": 1085.0,
                 "volume": 24330441,
+                "trading_value": 26580156665,
+                "margin_balance": 16584000,
+                "foreign_shares": 123918634,
+                "trust_net_buy": 983090,
+                "dealer_net_buy": 98467,
             },
             id="tpex",
         ),
@@ -78,6 +99,11 @@ def test_daily_returns_standard_table(stock_id, first_row):
         "low": "float64",
         "close": "float64",
         "volume": "int64",
+        "trading_value": "int64",
+        "margin_balance": "Int64",
+        "foreign_shares": "Int64",
+        "trust_net_buy": "Int64",
+        "dealer_net_buy": "Int64",
     }
     assert isinstance(table.index, pd.DatetimeIndex)
     assert table.index.is_monotonic_increasing
@@ -85,8 +111,53 @@ def test_daily_returns_standard_table(stock_id, first_row):
         pd.Timestamp(FIRST_DAY),
         pd.Timestamp(LAST_DAY),
     ]
-    # 價格的單位是元,成交量的單位是股(不是張)
+    # 價格與成交值的單位是元;成交量、融資餘額、外資持股與買賣超的單位是股(不是張)
     assert table.iloc[0].to_dict() == first_row
+
+
+def test_daily_leaves_chip_data_missing_on_day_not_yet_published():
+    # 籌碼資料比價格晚公布。最後一天只有價格時,籌碼欄位是缺值,買賣超也不能當成 0
+    last_day = LAST_DAY.isoformat()
+    source = FinMindSource(
+        transport=_recorded_finmind(
+            [],
+            without=[
+                ("TaiwanStockMarginPurchaseShortSale", last_day),
+                ("TaiwanStockShareholding", last_day),
+                ("TaiwanStockInstitutionalInvestorsBuySell", last_day),
+            ],
+        )
+    )
+
+    table = source.daily("2330", FIRST_DAY, LAST_DAY)
+
+    chips = ["margin_balance", "foreign_shares", "trust_net_buy", "dealer_net_buy"]
+    assert table.index[-1] == pd.Timestamp(LAST_DAY)
+    assert table.loc[last_day, chips].isna().all()
+    assert table.drop(columns=chips).notna().all().all()
+
+
+@pytest.mark.parametrize(
+    "also_missing",
+    [
+        pytest.param([], id="chips-published"),
+        # 外資持股與融資同時公布;只有融資的日子是 FinMind 漏了外資持股,不是還沒公布
+        pytest.param(["TaiwanStockShareholding"], id="foreign-shares-missed"),
+    ],
+)
+def test_daily_counts_day_without_institutional_trades_as_zero_net_buy(also_missing):
+    # FinMind 只列出當天有法人交易的股票。冷門股常有好幾天沒有法人交易
+    day = "2026-10-06"
+    datasets = ["TaiwanStockInstitutionalInvestorsBuySell", *also_missing]
+    source = FinMindSource(
+        transport=_recorded_finmind(
+            [], without=[(dataset, day) for dataset in datasets]
+        )
+    )
+
+    table = source.daily("2330", FIRST_DAY, LAST_DAY)
+
+    assert table.loc[day, ["trust_net_buy", "dealer_net_buy"]].tolist() == [0, 0]
 
 
 def test_daily_sends_token_as_bearer():
@@ -94,7 +165,9 @@ def test_daily_sends_token_as_bearer():
     FinMindSource(token="my-token", transport=_recorded_finmind(requests)).daily(
         "2330", FIRST_DAY, LAST_DAY
     )
-    assert requests[0].headers["Authorization"] == "Bearer my-token"
+    assert {request.headers["Authorization"] for request in requests} == {
+        "Bearer my-token"
+    }
 
 
 @pytest.mark.parametrize("token", [None, ""], ids=["unset", "empty"])
@@ -103,7 +176,7 @@ def test_daily_without_token_sends_no_authorization(token):
     FinMindSource(token=token, transport=_recorded_finmind(requests)).daily(
         "2330", FIRST_DAY, LAST_DAY
     )
-    assert "Authorization" not in requests[0].headers
+    assert not any("Authorization" in request.headers for request in requests)
 
 
 def _finmind_answering(handle) -> FinMindSource:
