@@ -15,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from app.market import DAILY_DTYPES
 from app.runs import run
 from tests.fakes import FailingSource
 
@@ -87,9 +88,88 @@ def test_result_reports_backtest_and_forecast_of_the_run(
     assert result["backtest"]["accuracy"] == (
         (scored["direction"] == scored["actual"]).sum() / len(scored)
     )
+    assert result["backtest"]["days"] == [
+        {
+            "date": day.date().isoformat(),
+            "direction": int(row.direction),
+            "actual": int(row.actual),
+        }
+        for day, row in scored.iterrows()
+    ]
     assert [day["direction"] for day in result["forecast"]] == days.loc[
         days["actual"].isna(), "direction"
     ].tolist()
+
+
+def test_result_reports_the_last_trading_day_of_the_data(client, daily):
+    job = client.post("/api/jobs", json={"stock_id": "2330", "horizon": 10}).json()
+    _wait_until_done(client, job["id"])
+    result = client.get("/api/results/2330/10").json()
+
+    assert result["data_date"] == daily.index[-1].date().isoformat()
+
+
+def test_direction_one_ratio_is_share_of_backtest_days_with_direction_1(
+    known_directions_source, database, run_config
+):
+    app = create_app(known_directions_source, database, run_config)
+    with TestClient(app) as client:
+        job = client.post("/api/jobs", json={"stock_id": "2330", "horizon": 10}).json()
+        _wait_until_done(client, job["id"])
+        backtest = client.get("/api/results/2330/10").json()["backtest"]
+
+    # 手算的過程寫在 known_directions_source:計分的 11 天裡只有第 0 天是 0
+    assert backtest["direction_one_ratio"] == 10 / 11
+
+
+def test_results_list_summarizes_each_stock_and_horizon_by_stock_id(client):
+    # 假資料來源不論股票代號都回傳同一份資料,這裡只看清單怎麼列
+    runs = [("2454", 10), ("2330", 10)]
+    started = [
+        client.post("/api/jobs", json={"stock_id": s, "horizon": h}).json()
+        for s, h in runs
+    ]
+    for job in started:
+        _wait_until_done(client, job["id"])
+
+    listed = client.get("/api/results").json()
+
+    expected = []
+    for stock_id, horizon in sorted(runs):
+        result = client.get(f"/api/results/{stock_id}/{horizon}").json()
+        backtest = result["backtest"]
+        expected.append(
+            {
+                "stock_id": stock_id,
+                "horizon": horizon,
+                "data_date": result["data_date"],
+                "latest_forecast": result["forecast"][-1],
+                "backtest": {
+                    "accuracy": backtest["accuracy"],
+                    "scored_days": backtest["scored_days"],
+                    "direction_one_ratio": backtest["direction_one_ratio"],
+                },
+            }
+        )
+    assert listed == expected
+
+
+def test_results_list_leaves_out_stock_whose_runs_failed(database, run_config):
+    source = FailingSource("FinMind 連不上")
+    with TestClient(create_app(source, database, run_config)) as client:
+        job = client.post("/api/jobs", json={"stock_id": "2330"}).json()
+        _wait_until_done(client, job["id"])
+
+        assert client.get("/api/results").json() == []
+
+
+def test_response_schemas_have_no_daily_market_columns(client):
+    # 資料來源的條款不允許把原始市場資料轉給第三方,API 只回傳預測與統計
+    schemas = client.get("/openapi.json").json()["components"]["schemas"]
+    fields = {
+        name for schema in schemas.values() for name in schema.get("properties", {})
+    }
+    assert fields.isdisjoint(DAILY_DTYPES)
 
 
 def test_result_is_kept_after_restart(fake_source, database, run_config):

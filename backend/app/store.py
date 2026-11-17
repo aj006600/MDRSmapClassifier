@@ -150,5 +150,13 @@ def get_predictions(
     return [dict(row) for row in rows]
 
 
+def list_stock_horizons(connection: sqlite3.Connection) -> list[tuple[str, int]]:
+    """回傳有逐日預測的每一組股票代號與 Horizon,依股票代號、再依 Horizon 排列。"""
+    rows = connection.execute(
+        "SELECT DISTINCT stock_id, horizon FROM predictions ORDER BY stock_id, horizon"
+    )
+    return [(row["stock_id"], row["horizon"]) for row in rows]
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
