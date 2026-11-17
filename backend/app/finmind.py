@@ -10,7 +10,7 @@ from datetime import date
 import httpx2
 import pandas as pd
 
-from app.market import DAILY_DTYPES
+from app.market import DAILY_DTYPES, QuotaExceededError, SourceUnavailableError
 
 URL = "https://api.finmindtrade.com/api/v4/data"
 
@@ -43,11 +43,37 @@ class FinMindSource:
             "start_date": start.isoformat(),
             "end_date": end.isoformat(),
         }
-        with httpx2.Client(transport=self.transport, timeout=60) as client:
-            response = client.get(URL, params=params, headers=headers)
-        response.raise_for_status()
+        try:
+            with httpx2.Client(transport=self.transport, timeout=60) as client:
+                response = client.get(URL, params=params, headers=headers)
+        except httpx2.HTTPError as error:
+            raise SourceUnavailableError(
+                f"連不上 FinMind,請稍後再試({error})"
+            ) from error
+        # FinMind 文件記載:請求額度用盡時回 402
+        if response.status_code == 402:
+            raise QuotaExceededError()
+        if response.status_code != 200:
+            raise SourceUnavailableError(
+                f"FinMind 回應 HTTP {response.status_code}({_reason(response)})"
+            )
 
-        records = pd.DataFrame(response.json()["data"], columns=["date", *_COLUMNS])
+        try:
+            data = response.json()["data"]
+        except (ValueError, KeyError, TypeError) as error:
+            raise SourceUnavailableError("FinMind 回應的內容讀不出資料") from error
+        records = pd.DataFrame(data, columns=["date", *_COLUMNS])
         table = records[list(_COLUMNS)].rename(columns=_COLUMNS).astype(DAILY_DTYPES)
         table.index = pd.DatetimeIndex(records["date"], name="date")
         return table.sort_index()
+
+
+def _reason(response: httpx2.Response) -> str:
+    """回傳 FinMind 在錯誤回應裡附的說明。
+
+    回應不是 FinMind 的格式時(例如中間的 proxy 回的錯誤頁),回傳 HTTP 的狀態說明。
+    """
+    try:
+        return response.json()["msg"]
+    except (ValueError, KeyError, TypeError):
+        return response.reason_phrase

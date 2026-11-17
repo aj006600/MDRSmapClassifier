@@ -4,6 +4,8 @@
 子程序要能以模組名稱重新 import 這些類別,才能 unpickle 資料來源。
 """
 
+import os
+import time
 from dataclasses import dataclass
 from datetime import date
 
@@ -22,9 +24,26 @@ class FixedSource:
 
 @dataclass
 class FailingSource:
-    """每次查詢都失敗的資料來源。"""
+    """每次查詢都 raise error 的資料來源。"""
 
-    message: str
+    error: Exception
 
     def daily(self, stock_id: str, start: date, end: date) -> pd.DataFrame:
-        raise ConnectionError(self.message)
+        raise self.error
+
+
+@dataclass
+class HangingSource:
+    """查詢之後一直不回應的資料來源,讓工作停在執行中。"""
+
+    def daily(self, stock_id: str, start: date, end: date) -> pd.DataFrame:
+        time.sleep(3600)
+        raise AssertionError("工作應該在這之前就被終止")
+
+
+@dataclass
+class DyingSource:
+    """查詢時讓整個程序直接結束的資料來源,像是程序被系統終止。"""
+
+    def daily(self, stock_id: str, start: date, end: date) -> pd.DataFrame:
+        os._exit(1)

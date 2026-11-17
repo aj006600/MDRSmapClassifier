@@ -13,7 +13,7 @@ def feature_table(daily: pd.DataFrame) -> pd.DataFrame:
     Signal 與 RSI14。欄位順序會影響 Search 的結果。
 
     每一列只用到當天(含)以前的資料。開頭幾十個交易日的技術指標還算不出來,
-    這些列會被丟掉。
+    這些列會被丟掉。有欄位缺值的交易日也會被丟掉,例如資料還沒公布完的最新交易日。
     """
     close = daily["close"]
     ema12 = _ema(close, 12)

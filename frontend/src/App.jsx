@@ -60,10 +60,22 @@ function useApi(path, version) {
   return state
 }
 
+const isActive = (job) => job.status === 'queued' || job.status === 'running'
+
+// 回傳合併後的工作清單:updates 裡的工作取代同一個 id 的舊資料。
+// 清單依 id 排列,id 的順序就是發起與執行的順序
+function mergeJobs(jobs, updates) {
+  const byId = new Map(jobs.map((job) => [job.id, job]))
+  for (const job of updates) byId.set(job.id, job)
+  return [...byId.values()].sort((a, b) => a.id - b.id)
+}
+
 export default function App() {
   const [stockId, setStockId] = useState('2330')
   const [horizon, setHorizon] = useState(10)
-  const [job, setJob] = useState(null)
+  const [jobs, setJobs] = useState([])
+  const [polls, setPolls] = useState(0)
+  const [offline, setOffline] = useState(false)
   const [error, setError] = useState(null)
   const [selected, setSelected] = useState(() => parseHash(window.location.hash))
   // 每次有工作成功就加一,讓清單與結果重新讀取
@@ -75,11 +87,8 @@ export default function App() {
     resultsVersion,
   )
 
-  const inProgress = job?.status === 'queued' || job?.status === 'running'
-
   async function start(event) {
     event.preventDefault()
-    setJob(null)
     setError(null)
     try {
       const response = await fetch('/api/jobs', {
@@ -91,10 +100,20 @@ export default function App() {
         setError(`無法發起執行(HTTP ${response.status})`)
         return
       }
-      setJob(await response.json())
+      // 這支股票這個 Horizon 已經在排隊或執行時,回傳的是原本那個工作
+      const job = await response.json()
+      setJobs((jobs) => mergeJobs(jobs, [job]))
     } catch {
       setError('連不上後端')
     }
+  }
+
+  // 選取這個工作的結果,並重新讀取股票清單與結果,讓剛完成的結果出現。
+  // hash 沒有變時不會觸發 hashchange,所以這裡直接選取
+  function showResult(job) {
+    window.location.hash = resultHash(job.stock_id, job.horizon)
+    setSelected({ stockId: job.stock_id, horizon: job.horizon })
+    setResultsVersion((version) => version + 1)
   }
 
   useEffect(() => {
@@ -103,26 +122,34 @@ export default function App() {
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
 
+  // 這個 effect 在網頁打開時立刻向後端查一次排隊中與執行中的工作,之後定期再查:
+  // 重新整理或重開網頁時,畫面才能恢復這些工作。
+  // 離開進行中清單的工作要個別再查一次,才拿得到它最後的狀態。
+  // polls 讓 effect 在每一輪之後重跑:後端暫時連不上(例如重新啟動)時工作清單不會變,
+  // 少了它就不會再重試
   useEffect(() => {
-    if (!inProgress) return
+    const watched = jobs.filter(isActive)
     const timer = setTimeout(async () => {
       try {
-        const response = await fetch(`/api/jobs/${job.id}`)
-        setJob(await response.json())
+        const active = await fetchJson('/api/jobs')
+        const activeIds = new Set(active.map((job) => job.id))
+        const ended = await Promise.all(
+          watched
+            .filter((job) => !activeIds.has(job.id))
+            .map((job) => fetchJson(`/api/jobs/${job.id}`)),
+        )
+        setJobs((jobs) => mergeJobs(jobs, [...active, ...ended]))
+        setOffline(false)
+        const succeeded = ended.filter((job) => job.status === 'succeeded')
+        if (succeeded.length > 0) showResult(succeeded[succeeded.length - 1])
       } catch {
-        setError('連不上後端')
+        setOffline(true)
+      } finally {
+        setPolls((polls) => polls + 1)
       }
-    }, POLL_INTERVAL_MS)
+    }, polls === 0 ? 0 : POLL_INTERVAL_MS)
     return () => clearTimeout(timer)
-  }, [job, inProgress])
-
-  useEffect(() => {
-    if (job?.status !== 'succeeded') return
-    // hash 沒有變時不會觸發 hashchange,所以這裡直接選取
-    window.location.hash = resultHash(job.stock_id, job.horizon)
-    setSelected({ stockId: job.stock_id, horizon: job.horizon })
-    setResultsVersion((version) => version + 1)
-  }, [job?.status, job?.stock_id, job?.horizon])
+  }, [jobs, polls])
 
   return (
     <main>
@@ -148,13 +175,12 @@ export default function App() {
             ))}
           </select>
         </label>
-        <button type="submit" disabled={inProgress}>
-          執行
-        </button>
+        <button type="submit">執行</button>
       </form>
 
       {error && <p className="error">{error}</p>}
-      {job && <JobStatus job={job} />}
+      {offline && <p className="error">連不上後端,稍後會自動重試</p>}
+      {jobs.length > 0 && <JobList jobs={jobs} />}
       {result.error && <p className="error">{result.error}</p>}
       {result.data && <ResultView result={result.data} />}
 
@@ -170,18 +196,33 @@ export default function App() {
   )
 }
 
-function JobStatus({ job }) {
+function JobList({ jobs }) {
+  const active = jobs.filter(isActive)
   return (
     <section>
-      <p>
-        {job.stock_id} · Horizon {job.horizon}:<strong>{STATUS_TEXT[job.status]}</strong>
-        {job.status === 'running' && job.stage && `(${STAGE_TEXT[job.stage]})`}
-      </p>
-      {job.status === 'running' && job.stage === 'search' && (
-        <p>Search 通常需要幾分鐘,請稍候。</p>
-      )}
-      {job.status === 'failed' && <p className="error">失敗原因:{job.error}</p>}
+      <h2>工作</h2>
+      <ul>
+        {jobs.map((job) => (
+          <li key={job.id}>
+            <JobStatus job={job} ahead={active.filter((other) => other.id < job.id).length} />
+          </li>
+        ))}
+      </ul>
     </section>
+  )
+}
+
+function JobStatus({ job, ahead }) {
+  return (
+    <>
+      {job.stock_id} · Horizon {job.horizon}:<strong>{STATUS_TEXT[job.status]}</strong>
+      {job.status === 'running' && job.stage && `(${STAGE_TEXT[job.stage]})`}
+      {job.status === 'queued' && ahead > 0 && `(前面還有 ${ahead} 個)`}
+      {job.status === 'running' && job.stage === 'search' && (
+        <div>Search 通常需要幾分鐘,請稍候。</div>
+      )}
+      {job.status === 'failed' && <div className="error">失敗原因:{job.error}</div>}
+    </>
   )
 }
 

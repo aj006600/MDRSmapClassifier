@@ -1,6 +1,7 @@
 """後端的 FastAPI 進入點,提供執行、工作與結果的 HTTP API。
 
-端點涵蓋發起執行、查詢工作、列出有結果的股票,以及查詢某支股票某個 Horizon 的結果。
+端點涵蓋發起執行、查詢工作、列出進行中的工作、列出有結果的股票,
+以及查詢某支股票某個 Horizon 的結果。
 
 create_app 接收資料來源、資料庫檔案與執行的設定;模組層的 app 是 uvicorn 載入的正式設定。
 """
@@ -79,7 +80,10 @@ class Result(BaseModel):
     stock_id: str
     horizon: int
     data_date: dt.date
-    """執行時的資料用到的最後一個交易日。"""
+    """執行時的資料用到的最後一個交易日。
+
+    最新交易日的資料還沒公布完時,是在它之前最近一個資料齊全的交易日。
+    """
     backtest: Backtest
     forecast: list[ForecastDay]
 
@@ -108,14 +112,15 @@ def create_app(
     async def lifespan(app: FastAPI):
         with closing(store.connect(database)) as connection:
             store.migrate(connection)
+        app.state.worker = jobs.Worker(database, source, config)
+        app.state.worker.start()
         yield
+        app.state.worker.stop()
 
     app = FastAPI(
         title="mdrsmap-classifier backend", version="0.1.0", lifespan=lifespan
     )
-    app.state.source = source
     app.state.database = database
-    app.state.config = config
     app.include_router(router)
     return app
 
@@ -137,12 +142,17 @@ def health_check():
 
 @router.post("/api/jobs", status_code=202)
 def start_job(body: JobRequest, connection: Connection, request: Request) -> Job:
-    """發起一次執行。執行在背景跑,以回傳的 id 查詢進度。"""
+    """發起一次執行。執行在背景依發起的順序一次跑一個,以回傳的 id 查詢進度。"""
     job_id = store.create_job(connection, body.stock_id, body.horizon)
     job = Job(**store.get_job(connection, job_id))
-    state = request.app.state
-    jobs.launch(job_id, state.database, state.source, state.config)
+    request.app.state.worker.notify()
     return job
+
+
+@router.get("/api/jobs")
+def list_jobs(connection: Connection) -> list[Job]:
+    """列出排隊中與執行中的工作,依執行的順序排列。"""
+    return [Job(**job) for job in store.list_active_jobs(connection)]
 
 
 @router.get("/api/jobs/{job_id}")
