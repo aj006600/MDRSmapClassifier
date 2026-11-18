@@ -10,14 +10,25 @@ API 再從資料庫讀出來。
 
 import logging
 import multiprocessing
+import sqlite3
 import threading
 from contextlib import closing
+from datetime import date, timedelta
 from pathlib import Path
+
+import pandas as pd
 
 from app import store
 from app.features import IncompleteDataError
 from app.market import MarketDataSource, QuotaExceededError, SourceUnavailableError
-from app.runs import InsufficientHistoryError, RunConfig, StockNotFoundError, run
+from app.runs import (
+    InsufficientHistoryError,
+    RunConfig,
+    Stage,
+    StockNotFoundError,
+    fetch_from,
+    run,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -109,22 +120,63 @@ class Worker:
 def execute(
     job_id: int, database: Path, source: MarketDataSource, config: RunConfig
 ) -> None:
-    """執行一個已經標為執行中的工作,成功時存下結果,失敗時存下原因。"""
+    """執行一個已經標為執行中的工作,成功時存下結果,失敗時存下原因。
+
+    這支股票這個 Horizon 已有結果時,沿用它的參數補算新增的交易日;
+    工作要求重新搜尋時,不沿用已有的結果,重新做 Search。
+    """
     with closing(store.connect(database)) as connection:
         job = store.get_job(connection, job_id)
+        stock_id, horizon = job["stock_id"], job["horizon"]
+        as_of = date.fromisoformat(job["as_of"])
+
+        def on_stage(stage: Stage) -> None:
+            store.set_stage(connection, job_id, stage)
+
         try:
-            result = run(
-                source,
-                job["stock_id"],
-                job["horizon"],
-                config,
-                on_stage=lambda stage: store.set_stage(connection, job_id, stage),
-            )
+            on_stage(Stage.FETCH)
+            daily = _fetch(connection, source, stock_id, as_of, config)
+            previous = None
+            if not job["re_search"]:
+                previous = store.get_run(connection, stock_id, horizon)
+            result = run(daily, horizon, as_of, previous, config, on_stage)
         except Exception as error:
             logger.exception("工作 %s 失敗", job_id)
             store.fail_job(connection, job_id, _failure_reason(error))
         else:
-            store.finish_job(connection, job_id, result.days)
+            store.finish_job(connection, job_id, result)
+
+
+def _fetch(
+    connection: sqlite3.Connection,
+    source: MarketDataSource,
+    stock_id: str,
+    as_of: date,
+    config: RunConfig,
+) -> pd.DataFrame:
+    """向資料來源補抓到 as_of 為止還沒存的日子,回傳這支股票存下的所有交易日。
+
+    已經存下的交易日不再請求:只抓最後一個存下的交易日之後的日子。
+    回傳的最後一天一定是資料齊全的交易日。
+
+    什麼都沒存下時,資料來源查不到這支股票就 raise StockNotFoundError;
+    查得到但沒有一天的資料是齊全的,就 raise IncompleteDataError。
+    """
+    stored = store.get_daily(connection, stock_id)
+    if stored.empty:
+        since = fetch_from(as_of, config)
+    else:
+        since = stored.index[-1].date() + timedelta(days=1)
+    if since > as_of:
+        return stored
+    fetched = source.daily(stock_id, since, as_of)
+    store.add_daily(connection, stock_id, fetched)
+    daily = store.get_daily(connection, stock_id)
+    if daily.empty and fetched.empty:
+        raise StockNotFoundError(stock_id)
+    if daily.empty:
+        raise IncompleteDataError("資料來源回傳的交易日裡,沒有一天的資料是齊全的")
+    return daily
 
 
 def _failure_reason(error: Exception) -> str:

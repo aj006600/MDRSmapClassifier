@@ -8,12 +8,12 @@ create_app 接收資料來源、資料庫檔案與執行的設定;模組層的 a
 
 import datetime as dt
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import asynccontextmanager, closing
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from app import jobs, store
@@ -31,6 +31,8 @@ DATABASE = Path("/data/mdrsmap.db")
 class JobRequest(BaseModel):
     stock_id: str
     horizon: Literal[5, 10, 20] = 10
+    re_search: bool = False
+    """為 true 時不沿用已存的參數:重設起點並重新做 Search,之前的逐日預測全部換掉。"""
 
 
 class Job(BaseModel):
@@ -79,6 +81,10 @@ class ForecastDay(BaseModel):
 class Result(BaseModel):
     stock_id: str
     horizon: int
+    search_date: dt.date
+    """做 Search 找到這組參數的那一天。"""
+    start: dt.date
+    """起點:逐日預測從這一天開始;Search 只用這一天(含)以前的資料。"""
     data_date: dt.date
     """執行時的資料用到的最後一個交易日。
 
@@ -101,11 +107,15 @@ class ResultSummary(BaseModel):
 
 
 def create_app(
-    source: MarketDataSource, database: Path, config: RunConfig = RunConfig()
+    source: MarketDataSource,
+    database: Path,
+    config: RunConfig = RunConfig(),
+    today: Callable[[], dt.date] = dt.date.today,
 ) -> FastAPI:
     """建立以 source 取得資料、把狀態與結果存進 database 的 app。
 
-    啟動時會把 database 的結構更新到最新。
+    啟動時會把 database 的結構更新到最新。today 回傳今天的日期,
+    只給測試換成指定的日子,正式使用時保持預設。
     """
 
     @asynccontextmanager
@@ -121,6 +131,7 @@ def create_app(
         title="mdrsmap-classifier backend", version="0.1.0", lifespan=lifespan
     )
     app.state.database = database
+    app.state.today = today
     app.include_router(router)
     return app
 
@@ -141,9 +152,23 @@ def health_check():
 
 
 @router.post("/api/jobs", status_code=202)
-def start_job(body: JobRequest, connection: Connection, request: Request) -> Job:
-    """發起一次執行。執行在背景依發起的順序一次跑一個,以回傳的 id 查詢進度。"""
-    job_id = store.create_job(connection, body.stock_id, body.horizon)
+def start_job(
+    body: JobRequest, connection: Connection, request: Request, response: Response
+) -> Job:
+    """發起一次以今天為準的執行。執行在背景依發起的順序一次跑一個,以回傳的 id 查詢進度。
+
+    沒有要求重新搜尋、且今天已經有成功的工作時,不重算也不抓資料,
+    以 HTTP 200 回傳那個工作。
+    """
+    today = request.app.state.today()
+    if not body.re_search:
+        done = store.find_succeeded_job(connection, body.stock_id, body.horizon, today)
+        if done is not None:
+            response.status_code = 200
+            return Job(**done)
+    job_id = store.create_job(
+        connection, body.stock_id, body.horizon, today, body.re_search
+    )
     job = Job(**store.get_job(connection, job_id))
     request.app.state.worker.notify()
     return job
@@ -168,8 +193,7 @@ def list_results(connection: Connection) -> list[ResultSummary]:
     """列出每一組有結果的股票與 Horizon,依股票代號、再依 Horizon 排列。"""
     summaries = []
     for stock_id, horizon in store.list_stock_horizons(connection):
-        days = store.get_predictions(connection, stock_id, horizon)
-        result = _build_result(stock_id, horizon, days)
+        result = _get_result(connection, stock_id, horizon)
         summaries.append(
             ResultSummary(
                 stock_id=stock_id,
@@ -186,24 +210,33 @@ def list_results(connection: Connection) -> list[ResultSummary]:
 
 @router.get("/api/results/{stock_id}/{horizon}")
 def get_result(stock_id: str, horizon: int, connection: Connection) -> Result:
-    """回傳最近一次成功執行的 Backtest 與 Forecast。"""
-    days = store.get_predictions(connection, stock_id, horizon)
-    if not days:
+    """回傳最近一次成功執行的結果:Search 的日期與起點、Backtest 與 Forecast。"""
+    result = _get_result(connection, stock_id, horizon)
+    if result is None:
         raise HTTPException(404, "這支股票的這個 Horizon 還沒有結果")
-    return _build_result(stock_id, horizon, days)
+    return result
 
 
-def _build_result(stock_id: str, horizon: int, days: list[dict]) -> Result:
-    """從不是空的逐日預測算出結果;days 的格式同 store.get_predictions。
+def _get_result(
+    connection: sqlite3.Connection, stock_id: str, horizon: int
+) -> Result | None:
+    """從存下的 Search 與逐日預測算出結果;還沒有結果時是 None。
 
-    最後 Horizon 個交易日的實際 Direction 一定還沒揭曉,所以 Forecast 不會是空的。
+    逐日預測從起點開始,所以第一天就是起點。最後 Horizon 個交易日的實際 Direction
+    一定還沒揭曉,所以 Forecast 不會是空的。
     """
+    search_date = store.get_search_date(connection, stock_id, horizon)
+    if search_date is None:
+        return None
+    days = store.get_predictions(connection, stock_id, horizon)
     scored = [day for day in days if day["actual"] is not None]
     correct = sum(day["direction"] == day["actual"] for day in scored)
     ones = sum(day["actual"] == 1 for day in scored)
     return Result(
         stock_id=stock_id,
         horizon=horizon,
+        search_date=search_date,
+        start=days[0]["date"],
         data_date=days[-1]["date"],
         backtest=Backtest(
             accuracy=correct / len(scored) if scored else None,
