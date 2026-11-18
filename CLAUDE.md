@@ -15,7 +15,7 @@
 
 Trunk-based:`main` 是唯一長期分支,所有改動走短命 feature branch → PR → squash merge,分支命名 `feat/xxx`、`fix/xxx`。**開工前先切分支**——commit 落在 `main` 上不會被攔,但 push 會(`.claude/hooks/block-push-main.sh` 在 python3 可用時硬擋),屆時得把 commit 搬到分支才走得下去。
 
-一段工作完成後可自行 push feature branch,但**開 PR 前要先問過我**——PR 是 CI 的觸發點。merge 進 main 只跑 CI,不部署;目前還沒有發版流程。
+一段工作完成後可自行 push feature branch,但**開 PR 前要先問過我**——PR 是 CI 的觸發點。merge 進 main 只跑 CI,不部署;推 `v*` tag 才 build 並發佈 image(發版步驟見 `docs/development.md` 的 Release)。
 
 PR 有 conflict 時自行 `git rebase origin/main` 再 force-push 自己的 feature branch,不用問;文件表格類衝突兩邊都留,程式碼衝突解不了就停下來問。
 

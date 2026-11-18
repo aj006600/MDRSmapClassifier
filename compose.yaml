@@ -1,21 +1,26 @@
-# Base:只定義服務與內部接線;對外發佈哪些埠由 compose.local.yaml 決定。
+# 自架用的編排檔:從容器登錄庫拉 Release 的 image 啟動服務,不需要原始碼與建置環境。
+# 自架只需要這個檔與 .env。本機開發由 compose.local.yaml 疊在上面,改成從原始碼 build。
+# 拉哪一個版本由 .env 的 VERSION 決定;留空時拉 latest,也就是最近一次發佈的 Release。
 services:
   backend:
-    build: ./backend
+    image: ghcr.io/aj006600/mdrsmap-classifier-backend:${VERSION:-latest}
     # 後端固定跑 linux/amd64:pyEDM 1.15.4 在 PyPI 上只有 x86_64 的 Linux wheel,
-    # 沒有 arm64 的 wheel,也沒有 sdist。在 Apple Silicon 上由 Docker 模擬執行,比原生慢。
+    # 沒有 arm64 的 wheel,也沒有 sdist。在 arm64 的主機上由 Docker 模擬執行,比原生慢。
     platform: linux/amd64
-    image: ${APP_NAME:-mdrsmap-classifier}-backend:${TAG:-latest}
     restart: unless-stopped
-    # 唯一的設定來源,不進版控,缺檔時由 make 從 .env.example 複製。
+    # 唯一的設定來源,不進版控。本機開發時缺檔由 make 從 .env.example 複製,自架時自己複製。
     # ENV_FILE 只給清理用的 make target 改指到進版控的 .env.example:清理不該因為缺 .env 而失敗。
     env_file:
       - ${ENV_FILE:-.env}
     # SQLite 資料庫放在 /data(見 backend/app/main.py 的 DATABASE)。
-    # 放在 named volume 裡,服務重啟或 container 重建後,算過的結果還在
+    # 放在 named volume 裡,服務重啟、container 重建或換成新版本的 image 後,算過的結果還在
     volumes:
       - data:/data
-    # 不對外開埠,由 frontend nginx 代理 /api;healthcheck 用 python 因 bookworm-slim 無 curl
+    # 埠只發佈到 loopback,同一個網路上的別台機器連不到。網頁經由 frontend 的 nginx 呼叫 /api;
+    # 後端自己的埠給健康檢查(/health)與 API 文件(/docs)用。撞埠時以 PORT / FRONTEND_PORT 換
+    ports:
+      - "127.0.0.1:${PORT:-8000}:8000"
+    # healthcheck 用 python 是因為 bookworm-slim 沒有 curl
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 3s
@@ -24,13 +29,14 @@ services:
       start_period: 5s
 
   frontend:
-    build: ./frontend
-    image: ${APP_NAME:-mdrsmap-classifier}-frontend:${TAG:-latest}
+    image: ghcr.io/aj006600/mdrsmap-classifier-frontend:${VERSION:-latest}
     restart: unless-stopped
     # 等 backend healthy 再起 nginx,否則 uvicorn 未 listen 前 /api 會回 502
     depends_on:
       backend:
         condition: service_healthy
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:80"
 
 volumes:
   data:
