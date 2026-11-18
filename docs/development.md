@@ -272,4 +272,7 @@ cd - && make worktree-rm ISSUE=12          # 收工:有未 commit 或未 push �
 branch 從 `origin/main` 開且不追蹤它(`--no-track`),不帶參數的 `git push` 不會推進 main;第一次 push 寫明
 `git push -u origin <branch>`。origin 上已有同名 branch 時,`make worktree` 接著它開。
 
+`make worktree-rm` 連該 worktree 的 container、network 與 volume 一起收。它只檢查程式碼有沒有 commit 與 push,
+volume 裡的資料(該 worktree 的 `data` 裡算過的結果)會直接刪掉:要留的資料在主 checkout 跑。
+
 `make clean` 以專案 label 清 image,會連其他 worktree build 的一起清;正在跑的刪不掉,會停在那一步。
