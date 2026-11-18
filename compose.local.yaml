@@ -1,5 +1,7 @@
-# 本機開發 override:疊在 compose.yaml 上,image 改從原始碼 build,後端開啟 hot reload。
-# 埠沿用 compose.yaml 的設定:前端在 localhost:3000、後端在 localhost:8000,只發佈到 loopback。
+# 本機開發 override,疊在 compose.yaml 上:
+# - 兩個服務的 image 改從原始碼 build
+# - 後端用 dev stage,開啟 hot reload
+# - 埠與其他設定沿用 compose.yaml
 # 撞埠(例如另一個 worktree 也在跑 make local)時從 shell 換:PORT=8001 FRONTEND_PORT=3001 make local
 # 在遠端主機上開發就用 SSH / VS Code 把埠轉接過來
 services:

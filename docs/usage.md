@@ -91,11 +91,11 @@
 網頁能做的事都能經由 HTTP API 做,網頁本身也只呼叫這組 API。
 
 - 後端在 http://localhost:8000,自動產生的互動式文件在 http://localhost:8000/docs。
-- 網頁的位址也代理同一組端點:http://localhost:3000/api/jobs 與 http://localhost:8000/api/jobs 是同一個端點。健康檢查與 API 文件只在後端的位址。
+- 網頁的位址也代理同一組 endpoint:http://localhost:3000/api/jobs 與 http://localhost:8000/api/jobs 是同一個 endpoint。健康檢查與 API 文件只在後端的位址。
 - 欄位名稱與 [GLOSSARY.md](../GLOSSARY.md) 的用詞一致。
 - API 只回傳預測與統計,不提供原始市場資料的下載,因為 FinMind 的條款不允許把原始資料轉給第三方。
 
-| 端點 | 用途 |
+| Endpoint | 用途 |
 |------|------|
 | `POST /api/jobs` | 發起執行 |
 | `GET /api/jobs` | 列出排隊中與執行中的工作,依執行的順序排列 |

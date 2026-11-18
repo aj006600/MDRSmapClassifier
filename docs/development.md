@@ -11,7 +11,7 @@ make local-down  # 停止並清理 container 與 network
 
 乾淨 clone 不必先建任何檔案:`make local` 發現缺 `.env` 時會從 `.env.example` 複製一份。
 
-`make local` 疊用兩個編排檔。`compose.yaml` 是自架用的,從容器登錄庫拉 Release 的 image;`compose.local.yaml` 疊在上面,把兩個服務改成從原始碼 build,並開啟後端的 hot reload。服務的接線、埠、volume 與 healthcheck 都寫在 `compose.yaml`,自架與本機開發用的是同一份。
+`make local` 疊用兩個 compose 檔。`compose.yaml` 是自架用的,從 container registry 拉 Release 的 image;`compose.local.yaml` 疊在上面,把兩個服務改成從原始碼 build,並開啟後端的 hot reload。服務的接線、埠、volume 與 healthcheck 都寫在 `compose.yaml`,自架與本機開發用的是同一份。
 
 - 前端 → http://localhost:3000
 - 後端 → http://localhost:8000/health,API 文件在 http://localhost:8000/docs
@@ -168,7 +168,7 @@ done
 | `ghcr.io/aj006600/mdrsmap-classifier-backend:<tag>` | amd64 |
 | `ghcr.io/aj006600/mdrsmap-classifier-frontend:<tag>` | amd64、arm64 |
 
-image 的 tag 與 git tag 相同,每次發佈也把 `latest` 指到這一版。backend 用的是 Dockerfile 最後一個 stage(runtime),不含測試與開發工具。merge 進 main 只跑 CI,不發佈 image。
+image 的 tag 與 git tag 相同,每次發佈也把 `latest` 指到這一版。backend 用的是 Dockerfile 最後一個 stage(runtime),不含測試與開發工具。workflow 先把兩個 image 都 build 完,兩個都成功才開始推,所以其中一個 build 失敗時,container registry 裡不會出現只有一半的版本。merge 進 main 只跑 CI,不發佈 image。
 
 發版步驟:
 
@@ -194,7 +194,7 @@ image 的 tag 與 git tag 相同,每次發佈也把 `latest` 指到這一版。b
 
 `latest` 會跟著每一個推上去的 `v*` tag 移動,包括 `v0.2.0-rc.1` 這種預發佈的版本號。`VERSION` 留空的自架者拉的是 `latest`,所以只推要給大家用的版本。
 
-發版前想先在本機確認 image 能用:build 出與 Release 同名的 image,在只放了 `compose.yaml` 與 `.env` 的空資料夾裡啟動。image 已經在本機時,compose 不會去容器登錄庫拉:
+發版前想先在本機確認 image 能用:build 出與 Release 同名的 image,在只放了 `compose.yaml` 與 `.env` 的空資料夾裡啟動。image 已經在本機時,compose 不會去 container registry 拉:
 
 ```bash
 docker build --platform linux/amd64 -t ghcr.io/aj006600/mdrsmap-classifier-backend:v0.1.0-check backend
@@ -239,6 +239,8 @@ make clean     # make local 的 container / volume / network + 本專案的 imag
 **怎麼認出這個專案的東西**:每個 Dockerfile 都有一行專案 label(`org.opencontainers.image.title`),
 build 出來的每顆 image 都帶著它,連重 build 後沒名字(`<none>`)的舊 image 也是。`make clean` 只刪帶這個 label 的,
 不比對 image 名字——`shop` 與 `shop-admin` 這種名字相近的專案才不會互刪。
+從 GHCR 拉下來的 Release image 也帶同一個 label,所以在同一台機器上自架時,`make clean` 會連它們一起刪掉。
+自架的資料 volume 屬於另一個 compose project,不會被刪;image 下次啟動時再拉就好。
 
 **build cache 沒有 label**,沒辦法按專案挑。`make clean` 先把本專案的 image 全刪掉,它的 cache 就變成沒人在用,
 最後一步 `docker builder prune` 把沒人在用的 cache 丟掉。別的專案同樣沒人在用的 cache 也會一起丟——

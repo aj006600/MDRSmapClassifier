@@ -1,10 +1,16 @@
 name: Release
 
 # 推一個 v 開頭的 tag,就 build 前後端的出貨 image 並推到 GitHub Container Registry。
-# image 的 tag 與 git tag 相同,latest 也指到這一版。發版步驟見 docs/development.md 的 Release 一節
+# image 的 tag 與 git tag 相同,latest 也指到這一版
 on:
   push:
     tags: ["v*"]
+
+env:
+  # 後端只出 amd64:pyEDM 1.15.4 在 PyPI 上沒有 arm64 的 Linux wheel。
+  # 前端的 build stage 跑在 runner 的原生架構,最後一個 stage 只複製檔案,所以出 arm64 不需要模擬
+  BACKEND_PLATFORMS: linux/amd64
+  FRONTEND_PLATFORMS: linux/amd64,linux/arm64
 
 jobs:
   publish:
@@ -12,16 +18,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    strategy:
-      matrix:
-        include:
-          # 後端只出 amd64:pyEDM 1.15.4 在 PyPI 上沒有 arm64 的 Linux wheel
-          - service: backend
-            platforms: linux/amd64
-          # 前端的 build stage 跑在 runner 的原生架構,最後一個 stage 只複製檔案,
-          # 所以出 arm64 不需要模擬
-          - service: frontend
-            platforms: linux/amd64,linux/arm64
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v4
@@ -32,16 +28,44 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       # image 名稱是 ghcr.io/<owner>/<repo>-<service>,metadata-action 會轉成小寫。
       # 它產生的 OCI label 記下來源 repo、版本與 commit
-      - id: meta
+      - id: backend_meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/${{ github.repository }}-${{ matrix.service }}
+          images: ghcr.io/${{ github.repository }}-backend
           tags: type=ref,event=tag
-      # 沒指定 target:後端的 Dockerfile 最後一個 stage 就是出貨用的 runtime
-      - uses: docker/build-push-action@v7
+      - id: frontend_meta
+        uses: docker/metadata-action@v6
         with:
-          context: ${{ matrix.service }}
-          platforms: ${{ matrix.platforms }}
+          images: ghcr.io/${{ github.repository }}-frontend
+          tags: type=ref,event=tag
+
+      # 兩個 image 都 build 成功才開始推。只推上去一個的話,container registry 裡這個版本
+      # 會缺一半,latest 也會指到前後端不同的版本。推送的步驟重用這裡留在 builder 裡的快取。
+      # 後端沒指定 target:Dockerfile 最後一個 stage 就是出貨用的 runtime
+      - name: Build backend
+        uses: docker/build-push-action@v7
+        with:
+          context: backend
+          platforms: ${{ env.BACKEND_PLATFORMS }}
+      - name: Build frontend
+        uses: docker/build-push-action@v7
+        with:
+          context: frontend
+          platforms: ${{ env.FRONTEND_PLATFORMS }}
+
+      - name: Push backend
+        uses: docker/build-push-action@v7
+        with:
+          context: backend
+          platforms: ${{ env.BACKEND_PLATFORMS }}
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.backend_meta.outputs.tags }}
+          labels: ${{ steps.backend_meta.outputs.labels }}
+      - name: Push frontend
+        uses: docker/build-push-action@v7
+        with:
+          context: frontend
+          platforms: ${{ env.FRONTEND_PLATFORMS }}
+          push: true
+          tags: ${{ steps.frontend_meta.outputs.tags }}
+          labels: ${{ steps.frontend_meta.outputs.labels }}

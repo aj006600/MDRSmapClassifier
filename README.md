@@ -19,7 +19,7 @@ Horizon 可以選 5、10 或 20 個交易日,預設為 10。例如 Horizon 為 1
 
 需要 Docker(含 compose plugin)。不需要 Python、Node.js,也不需要原始碼。
 
-1. 到 [Releases](https://github.com/aj006600/mdrsmap-classifier/releases) 找要安裝的版本,以下以 `v0.1.0` 為例。開一個資料夾,下載這個版本的編排檔與設定檔範本:
+1. 到 [Releases](https://github.com/aj006600/mdrsmap-classifier/releases) 找要安裝的版本,以下以 `v0.1.0` 為例。開一個資料夾,下載這個版本的 compose 檔與設定檔範本:
 
    ```bash
    mkdir mdrsmap-classifier && cd mdrsmap-classifier
@@ -121,7 +121,7 @@ FINMIND_TOKEN=<你的 token>
 - **後端的 image 只有 amd64**:pyEDM 1.15.4 在 PyPI 上沒有 arm64 的 Linux 版本。Apple Silicon 的 Mac 上,Docker Desktop 會自動模擬 amd64 來跑後端,但 Search 比原生慢。arm64 的 Linux 主機要先讓 Docker 能模擬 amd64(安裝 QEMU 的 binfmt 支援)。前端的 image 有 amd64 與 arm64 兩種。
 - **一次只跑一個工作**:其餘依發起的順序排隊。第一次執行一支股票要做 Search,需要幾分鐘。
 - **只能手動執行**:沒有排程。要更新到最新的交易日,就再執行一次。
-- **資料晚上才齊**:當天的籌碼資料約 21:00 才公布完,在那之前執行,結果以前一個交易日為準。細節見 [docs/usage.md](docs/usage.md#data-publication-time)。
+- **資料晚上才齊**:依 FinMind 的文件,當天的籌碼資料約 21:00 才公布完(沒有實測)。在那之前執行,結果以前一個交易日為準;當天稍後再執行,仍會拿到同一份結果。細節見 [docs/usage.md](docs/usage.md#data-publication-time)。
 - **參數不會自動更新**:同一支股票一直沿用同一組參數,直到你要求重新搜尋。
 - **特徵與論文不同**:見 [Features](#features)。
 - **沒有帳號與權限**:一份安裝給一個人或一個小團隊使用,埠只發佈到本機。
