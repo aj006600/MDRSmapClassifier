@@ -11,6 +11,8 @@ make local-down  # 停止並清理 container 與 network
 
 乾淨 clone 不必先建任何檔案:`make local` 發現缺 `.env` 時會從 `.env.example` 複製一份。
 
+`make local` 疊用兩個 compose 檔。`compose.yaml` 是自架用的,從 container registry 拉 Release 的 image;`compose.local.yaml` 疊在上面,把兩個服務改成從原始碼 build,並開啟後端的 hot reload。服務的接線、埠、volume 與 healthcheck 都寫在 `compose.yaml`,自架與本機開發用的是同一份。
+
 - 前端 → http://localhost:3000
 - 後端 → http://localhost:8000/health,API 文件在 http://localhost:8000/docs
 
@@ -32,7 +34,9 @@ make local-down  # 停止並清理 container 與 network
 | `.env.example` | 是 | 範本:列出所有變數,非機密給可用的本機預設值,機密給 placeholder |
 | `.env` | 否 | 你這台機器實際讀的值;缺檔時 `make local` 自動從 example 複製 |
 
-新增變數:先加進 `.env.example`,再到自己的 `.env` 填值。
+新增變數:先加進 `.env.example`,再到自己的 `.env` 填值。自架者升級時不會覆蓋自己的 `.env`,所以新增變數要給可用的預設值,並在 Release notes 寫明。
+
+`VERSION` 只給自架用:它決定 `compose.yaml` 拉哪一個版本的 image。`make local` 從原始碼 build,image 名稱由 `compose.local.yaml` 換掉,不讀這個值。
 
 ## Runs and storage
 
@@ -76,6 +80,8 @@ backend 的 image 固定 build 成 `linux/amd64`(`compose.yaml` 的 `platform`)�
 
 在 Apple Silicon 的 Mac 上,Docker Desktop 會模擬 amd64 來跑 backend。第一次 build 比較久,執行速度也比原生慢。frontend 沒有這個限制,照主機的架構 build。
 
+同樣的理由,Release 只發佈 amd64 的 backend image;frontend 的 image 有 amd64 與 arm64 兩種。
+
 ## Dependencies
 
 後端的相依寫在 `backend/pyproject.toml`,實際版本由 `backend/uv.lock` 鎖定。`pyedm`、`setuptools`、`scikit-learn` 三個套件有刻意的版本上限,理由寫在 `pyproject.toml` 的註釋裡,升級前先讀。
@@ -105,6 +111,7 @@ make test                             # 完整套 pytest,跟 CI 一樣
 make test ARGS="tests/test_main.py"   # 只跑一個檔
 make test ARGS="-k health"            # 只跑名字符合的測試
 make test ARGS='-m "not slow"'        # 略過慢速測試(演算法的回歸測試)
+make test ARGS="-m slow"              # 只跑慢速測試
 make lint                             # ruff check 與 ruff format --check
 make format                           # ruff format(就地改檔)
 ```
@@ -152,6 +159,53 @@ done
 
 標準答案只在刻意改變演算法時重新產生:在 dev stage 容器裡以 `tests/mdrsmap/conftest.py` 的 `load_paper_features()` 讀出同一份資料、跑 `mdrsmap.search`,把逐日的 Direction 寫回那個 csv,並更新測試裡的準確率。結果只在同一個平台上可重現(pyEDM 的鄰居搜尋遇到距離平手時,順序取決於平台),所以一定要在容器裡產生。
 
+## Release
+
+推一個 `v` 開頭的 tag,`.github/workflows/release.yml` 就 build 前後端的出貨 image,推到 GitHub Container Registry:
+
+| image | 架構 |
+|-------|------|
+| `ghcr.io/aj006600/mdrsmap-classifier-backend:<tag>` | amd64 |
+| `ghcr.io/aj006600/mdrsmap-classifier-frontend:<tag>` | amd64、arm64 |
+
+image 的 tag 與 git tag 相同,每次發佈也把 `latest` 指到這一版。backend 用的是 Dockerfile 最後一個 stage(runtime),不含測試與開發工具。workflow 先把兩個 image 都 build 完,兩個都成功才開始推,所以其中一個 build 失敗時,container registry 裡不會出現只有一半的版本。merge 進 main 只跑 CI,不發佈 image。
+
+發版步驟:
+
+1. 確認要發佈的 commit 在 main 上,而且 CI 是綠燈。Release workflow 不跑測試,只 build 與推送。
+2. 打 tag 並推上去,版本號用 `v<major>.<minor>.<patch>`:
+
+   ```bash
+   git fetch origin
+   git tag v0.1.0 origin/main
+   git push origin v0.1.0
+   ```
+
+3. 等 GitHub Actions 的 Release workflow 跑完。
+4. 建 GitHub Release,自架者才在 Releases 頁看得到這個版本:
+
+   ```bash
+   gh release create v0.1.0 --verify-tag --generate-notes
+   ```
+
+   Release notes 要寫明兩件事:`.env.example` 有沒有新增變數(自架者要自己加進 `.env`),以及有沒有改特徵或演算法(自架者可能要重新搜尋)。
+5. **只有第一次發版要做**:GHCR 的新 package 預設是 private,別人拉不到。到 GitHub 個人頁的 Packages,把 `mdrsmap-classifier-backend` 與 `mdrsmap-classifier-frontend` 兩個 package 的 visibility 改成 Public(package settings 最下方的 Change visibility)。改成 public 之後就不能再改回 private。
+6. 在沒有登入 GHCR 的機器上照 README 的 Quick Start 裝一次,確認拉得到 image,也能完成一次執行。
+
+`latest` 會跟著每一個推上去的 `v*` tag 移動,包括 `v0.2.0-rc.1` 這種預發佈的版本號。`VERSION` 留空的自架者拉的是 `latest`,所以只推要給大家用的版本。
+
+發版前想先在本機確認 image 能用:build 出與 Release 同名的 image,在只放了 `compose.yaml` 與 `.env` 的空資料夾裡啟動。image 已經在本機時,compose 不會去 container registry 拉:
+
+```bash
+docker build --platform linux/amd64 -t ghcr.io/aj006600/mdrsmap-classifier-backend:v0.1.0-check backend
+docker build -t ghcr.io/aj006600/mdrsmap-classifier-frontend:v0.1.0-check frontend
+mkdir /tmp/release-check && cp compose.yaml /tmp/release-check/
+cp .env.example /tmp/release-check/.env    # 再把 .env 的 VERSION 填成 v0.1.0-check
+cd /tmp/release-check && docker compose up -d
+```
+
+確認完用 `docker compose down --volumes` 收掉,再 `docker image rm` 刪掉這兩個 image。
+
 ## Inspection
 
 ```bash
@@ -185,6 +239,8 @@ make clean     # make local 的 container / volume / network + 本專案的 imag
 **怎麼認出這個專案的東西**:每個 Dockerfile 都有一行專案 label(`org.opencontainers.image.title`),
 build 出來的每顆 image 都帶著它,連重 build 後沒名字(`<none>`)的舊 image 也是。`make clean` 只刪帶這個 label 的,
 不比對 image 名字——`shop` 與 `shop-admin` 這種名字相近的專案才不會互刪。
+從 GHCR 拉下來的 Release image 也帶同一個 label,所以在同一台機器上自架時,`make clean` 會連它們一起刪掉。
+自架的資料 volume 屬於另一個 compose project,不會被刪;image 下次啟動時再拉就好。
 
 **build cache 沒有 label**,沒辦法按專案挑。`make clean` 先把本專案的 image 全刪掉,它的 cache 就變成沒人在用,
 最後一步 `docker builder prune` 把沒人在用的 cache 丟掉。別的專案同樣沒人在用的 cache 也會一起丟——

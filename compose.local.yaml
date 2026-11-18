@@ -1,18 +1,21 @@
-# 本機開發 override:make local 把前端發佈在 localhost:3000、後端發佈在 localhost:8000,後端開啟 hot reload。
+# 本機開發 override,疊在 compose.yaml 上:
+# - 兩個服務的 image 改從原始碼 build
+# - 後端用 dev stage,開啟 hot reload
+# - 埠與其他設定沿用 compose.yaml
 # 撞埠(例如另一個 worktree 也在跑 make local)時從 shell 換:PORT=8001 FRONTEND_PORT=3001 make local
-# 埠只發佈到 loopback:同一個網路上的別台機器連不到你的開發環境;在遠端主機上開發就用 SSH / VS Code 把埠轉接過來
+# 在遠端主機上開發就用 SSH / VS Code 把埠轉接過來
 services:
   backend:
     build:
       context: ./backend
       target: dev            # dev stage 含 pytest/ruff;啟動指令(--reload)由該 stage 的 CMD 提供
+    # 本機 build 的 image 不能用 Release 的名字,否則會蓋掉拉下來的 image。TAG 由 Makefile 帶入
+    image: ${APP_NAME:-mdrsmap-classifier}-backend:${TAG:-latest}
     volumes:
       - ./backend/app:/app/app
       - ./backend/mdrsmap:/app/mdrsmap
       - ./backend/tests:/app/tests
-    ports:
-      - "127.0.0.1:${PORT:-8000}:8000"
 
   frontend:
-    ports:
-      - "127.0.0.1:${FRONTEND_PORT:-3000}:80"
+    build: ./frontend
+    image: ${APP_NAME:-mdrsmap-classifier}-frontend:${TAG:-latest}
