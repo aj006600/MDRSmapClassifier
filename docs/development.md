@@ -189,8 +189,9 @@ image 的 tag 與 git tag 相同,每次發佈也把 `latest` 指到這一版。b
    ```
 
    Release notes 要寫明兩件事:`.env.example` 有沒有新增變數(自架者要自己加進 `.env`),以及有沒有改特徵或演算法(自架者可能要重新搜尋)。
-5. **只有第一次發版要做**:GHCR 的新 package 預設是 private,別人拉不到。到 GitHub 個人頁的 Packages,把 `mdrsmap-classifier-backend` 與 `mdrsmap-classifier-frontend` 兩個 package 的 visibility 改成 Public(package settings 最下方的 Change visibility)。改成 public 之後就不能再改回 private。
-6. 在沒有登入 GHCR 的機器上照 README 的 Quick Start 裝一次,確認拉得到 image,也能完成一次執行。
+5. 在沒有登入 GHCR 的機器上照 README 的 Quick Start 裝一次,確認拉得到 image,也能完成一次執行。
+
+`mdrsmap-classifier-backend` 與 `mdrsmap-classifier-frontend` 兩個 package 由這個 public repo 的 workflow 發佈,會連到這個 repo,而且發佈後就是 public,不必手動改 visibility。如果 GitHub 的 Packages 頁顯示 private,別人就拉不到 image:到 package settings 最下方的 Change visibility 改成 Public。改成 public 之後就不能再改回 private。
 
 `latest` 會跟著每一個推上去的 `v*` tag 移動,包括 `v0.2.0-rc.1` 這種預發佈的版本號。`VERSION` 留空的自架者拉的是 `latest`,所以只推要給大家用的版本。
 
