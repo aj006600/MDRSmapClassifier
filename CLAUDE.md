@@ -1,19 +1,25 @@
 ## Commands
 
-下列是本專案的 canonical 入口,測試與檢查一律走這裡(與 CI 同一套):
+下列是本專案的 canonical 入口:表上有的操作一律走這裡,測試與檢查與 CI 同一套。
 
 | 指令 | 用途 |
 |---|---|
 | `make local` / `make local-down` | 起本機環境(localhost:3000 / :8000)/ 停止並清理 |
 | `make test`(只跑一部分:`make test ARGS="tests/test_main.py"`) | 跑測試,在 backend 的 dev stage 容器裡 |
 | `make lint` / `make format` | lint / format(ruff) |
-| `make worktree ISSUE=<n> BRANCH=<feat/slug>` / `make worktree-rm ISSUE=<n>` | 開 / 收一個 issue 的 worktree(從主 checkout 跑;不要用 `git worktree add` 或內建的 worktree 工具) |
+| `make worktree ISSUE=<n> BRANCH=<feat/slug>` / `make worktree-rm ISSUE=<n>` | 開 / 收一個 issue 的 worktree(從主 checkout 跑,流程見 Development workflow) |
+| `make compose ARGS="..."` | 對 `make local` 那組 container 下 compose 子命令(`logs -f backend`、`exec backend sh`)。它帶著與 `make local` 同一組 `-f` 與 image tag;直接打 `docker compose` 會 build 出另一顆 image |
+| `make clean` | 回收本專案的 container / volume / network、image 與 build cache,範圍以專案 label 劃定,不動到別的專案;會連 `data` volume 裡算過的結果一起刪 |
 
-其餘指令:`make help`。
+其餘指令:`make help`(`make ps`)。
 
 ## Development workflow
 
 Trunk-based:`main` 是唯一長期分支,所有改動走短命 feature branch → PR → squash merge,分支命名 `feat/xxx`、`fix/xxx`。**開工前先切分支**——commit 落在 `main` 上不會被攔,但 push 會(`.claude/hooks/block-push-main.sh` 在 python3 可用時硬擋),屆時得把 commit 搬到分支才走得下去。
+
+說了 `in worktree` 才走 worktree 流程,沒說就照上面在主 checkout 切分支開工。開工前先 `git worktree list`:已有別的 worktree 在,代表有 session 在平行做,先問我要不要也進 worktree。
+
+worktree 流程:主 checkout 跑 `make worktree ISSUE=<n> BRANCH=feat/<slug>`,再用 EnterWorktree 的 `path` 進 `.claude/worktrees/mdrsmap-classifier-issue-<n>`;push 完先 ExitWorktree(keep),再從主 checkout 跑 `make worktree-rm ISSUE=<n>`。手上沒有 issue 編號就先問我。branch 刻意不追蹤 `origin/main`,第一次 push 寫明 `git push -u origin feat/<slug>`。
 
 一段工作完成後可自行 push feature branch,但**開 PR 前要先問過我**——PR 是 CI 的觸發點。merge 進 main 只跑 CI,不部署;推 `v*` tag 才 build 並發佈 image(發版步驟見 `docs/development.md` 的 Release)。
 
@@ -27,7 +33,7 @@ PR 有 conflict 時自行 `git rebase origin/main` 再 force-push 自己的 feat
 - **不留 AI credit**:commit message、PR / issue 的標題內文與留言、文件、程式碼,都不寫 AI 工具的署名(`Co-Authored-By: Claude ...` 這類 trailer、「Generated with Claude Code」這類字樣)。commit / PR / issue 由 `.claude/hooks/ai-credit-guard.sh` 擋,文件與程式碼靠這條。
 - **GitLab 操作**:remote 指向 GitLab 時,MR、issue、pipeline 等 API 操作以 remote URL 內嵌的 token 為唯一憑證來源,API base URL 同樣取自該 remote 的 host(self-hosted 常見)——`git remote get-url origin` 現取、存進 shell 變數後當場帶入呼叫。
 - **文件語言**:章節標題英文(`## Quick Start`)、內文繁體中文、技術術語保留英文(fixture、endpoint 不翻譯)。
-- **文檔同步**:user-facing 變更(指令、架構、安裝步驟)在**同一個 PR** 內同步 README/docs——文檔更新是變更的一部分,不是事後待辦。
+- **文檔同步**:user-facing 變更(指令、架構、安裝步驟)在**同一個 PR** 內同步 README/docs;新增或改了專案指令(Makefile target 等)時,上面的 Commands 表也在同一個 PR 更新——文檔更新是變更的一部分,不是事後待辦。
 - **文件只講自己**:ADR 與文件只描述本專案自己的決策與理由,不記錄本專案不使用的系統的識別名或狀態(別人的 database、service、container);要指涉時用它與本專案的關係描述(「同一台伺服器上既有的那顆 database」)。
 - **文件不寫 issue 與 PR 編號**:README 與 `docs/` 下的文件(含 ADR 與 research)不寫 `#N`、`!N` 當出處,理由直接用白話寫出來;出處在 git 歷史裡。`docs/agents/` 是寫給 agent 的操作說明,不在此限。
 - **程式碼註釋**:繁體中文(術語英文),不用 emoji。讀者是會這個語言、讀過專案的 domain 文件(`GLOSSARY.md`),但沒看過 ADR、issue、也沒參與過討論的人——他只讀這一則就要懂。

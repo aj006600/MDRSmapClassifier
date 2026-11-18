@@ -29,6 +29,15 @@
             "command": "bash ${CLAUDE_PROJECT_DIR}/.claude/hooks/secrets-scan-advisory.sh"
           }
         ]
+      },
+      {
+        "matcher": "Bash|EnterWorktree",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PROJECT_DIR}/.claude/hooks/worktree-guard.sh"
+          }
+        ]
       }
     ]
   }
