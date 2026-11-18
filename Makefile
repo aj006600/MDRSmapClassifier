@@ -29,7 +29,7 @@ help:
 	@echo ""
 	@echo "Worktrees(一個 issue 一個,從主 checkout 跑)"
 	@echo "  make worktree ISSUE=<n> BRANCH=<feat/slug>   開在 .claude/worktrees/<app>-issue-<n>,並複製 .env"
-	@echo "  make worktree-rm ISSUE=<n>                   刪掉該 worktree 與本地 branch(有未 commit 或未 push 的就拒絕)"
+	@echo "  make worktree-rm ISSUE=<n>                   刪掉該 worktree、本地 branch 與它的 container / volume(有未 commit 或未 push 的就拒絕)"
 
 # ── Local ──
 # .env 不進版控:乾淨 clone 首次跑起來不必先手動建檔
@@ -105,7 +105,8 @@ worktree:
 
 # 要從主 checkout 跑:刪的若是自己的 cwd,之後的指令都會失效。
 # 未 push 以「不在任何 origin ref 上」判斷:剛開還沒 commit 的、已 merge 且 origin branch 已刪的都算乾淨。
-# 最後連該 worktree 的 compose project 一起收,不留 container 與 network
+# 最後連該 worktree 的 compose project 一起收,不留 container、network 與 volume。
+# 上面只檢查程式碼:volume 裡的資料不在檢查範圍內,會直接刪掉
 worktree-rm:
 	@[ -n "$(ISSUE)" ] || { echo "用法:make worktree-rm ISSUE=<n>(從主 checkout 跑)" >&2; exit 1; }
 	@[ -d $(WORKTREE) ] || { echo "找不到 $(WORKTREE);要從主 checkout 跑" >&2; exit 1; }
@@ -119,5 +120,5 @@ worktree-rm:
 		echo "$$branch 有 origin 上沒有的 commit,先 push 再刪:" >&2; \
 		echo "$$unpushed" >&2; exit 1; \
 	fi; \
-	ENV_FILE=.env.example docker compose -p $(notdir $(WORKTREE)) $(LOCAL) down --remove-orphans && \
+	ENV_FILE=.env.example docker compose -p $(notdir $(WORKTREE)) $(LOCAL) down --volumes --remove-orphans && \
 	git worktree remove $(WORKTREE) && git branch -D $$branch
